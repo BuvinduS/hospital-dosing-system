@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "author": "Hospital Dosing System — Phase 1",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": -0.18, "left": 4.57, "attrs": {} },
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic", "top": -228.9, "left": 91.9, "attrs": { "distance": "40" } }
+  ],
+  "connections": [
+    [ "esp:GND.2",       "ultrasonic:GND",  "black",  ["v0","h96"] ],
+    [ "esp:3V3.1",       "ultrasonic:VCC",  "red",    ["v-134.4","h153.55"] ],
+    [ "ultrasonic:TRIG", "esp:5",           "purple", ["v240","h-0.4"] ],
+    [ "ultrasonic:ECHO", "esp:17",          "green",  ["h-0.8","v249.6"] ],
+    [ "esp:TX",          "$serialMonitor:RX", "", [] ],
+    [ "esp:RX",          "$serialMonitor:TX", "", [] ]
+  ],
+  "dependencies": {}
+}
