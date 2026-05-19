@@ -5,6 +5,8 @@
 // and calculates the distance in centimeters, which is then printed to the serial monitor every second.
 
 #include <Arduino.h>
+#include "water_tank.h"
+
 // ESP32-S3 + HC-SR04 Test Code
 // TRIG -> GPIO5
 // ECHO -> GPIO18
@@ -18,7 +20,7 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
-  Serial.println("HC-SR04 Ultrasonic Sensor Test");
+  Serial.println("Ultrasonic Sensor measurement running...");
 }
 
 void loop() {
@@ -38,13 +40,11 @@ void loop() {
   // Read echo pulse (measures how long the ECHO pin stays HIGH, which corresponds to the time it takes for the ultrasonic pulse to travel to the object and back)
   duration = pulseIn(ECHO_PIN, HIGH);
 
-  // Calculate distance
-  // The formula is: distance = (duration * speed of sound) / 2
-  // Speed of sound is approximately 34300 cm/s, which is 0.034
-  distanceCm = duration * 0.034 / 2;
+  // Calculate distance through shared sensor logic.
+  distanceCm = calculateDistanceCm(duration);
 
   Serial.print("Distance: ");
-  Serial.print(distanceCm);
+  Serial.print(distanceCm, 2);
   Serial.println(" cm");
 
   delay(1000);
