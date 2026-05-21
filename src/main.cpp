@@ -1,51 +1,66 @@
-// This code is for testing the HC-SR04 ultrasonic sensor with an ESP32-S3 microcontroller. 
-// It uses the Arduino framework and is written in C++11. 
-// The TRIG pin of the sensor is connected to GPIO5, and the ECHO pin is connected to GPIO18. 
-// The code sends a pulse to trigger the sensor, measures the duration of the echo pulse, 
-// and calculates the distance in centimeters, which is then printed to the serial monitor every second.
-
+// ============================================================
+//  IoT Chemical Dosing System — Hospital
+//  Phase 1b: Water tank sensing — main entry point
+//
+//  Hardware: ESP32-S3-DevKitC-1 + HC-SR04
+//  Simulator: Wokwi (VS Code extension)
+// ============================================================
 #include <Arduino.h>
 #include "water_tank.h"
 
-// ESP32-S3 + HC-SR04 Test Code
-// TRIG -> GPIO5
-// ECHO -> GPIO18
-
+// ── Pin definitions ──────────────────────────────────────────
 #define TRIG_PIN 5
 #define ECHO_PIN 17
 
+// ── Physical constants ───────────────────────────────────────
+// TODO: move to include/config.h in Phase 1b
+static constexpr float SPEED_OF_SOUND_M_PER_US = 0.000343f; // 343 m/s → m/µs
+static constexpr float TANK_HEIGHT_M = 10.19f;  // metres — derived from V=2000L, d=50cm
+static constexpr float TANK_RADIUS_M = 0.25f;   // metres — diameter 50cm as per spec
+static constexpr float TANK_MIN_LEVEL_M = 0.10f;
+
 void setup() {
   Serial.begin(115200);
-
+  delay(500);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
-
-  Serial.println("Ultrasonic Sensor measurement running...");
+  digitalWrite(TRIG_PIN, LOW);
+  Serial.println("Water tank sensing — ready");
 }
 
 void loop() {
-  long duration;
-  float distanceCm;
-
-  // Clear trigger
+  // ── Trigger ultrasonic pulse ───────────────────────────────
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
-
-  // Send 10us pulse
   digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10); // Keeps the pin HIGH for 10 microseconds. 
-  // HC-SR04 requires a pulse of at least 10 microseconds to trigger the measurement.
+  delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  // Read echo pulse (measures how long the ECHO pin stays HIGH, which corresponds to the time it takes for the ultrasonic pulse to travel to the object and back)
-  duration = pulseIn(ECHO_PIN, HIGH);
+  // ── Measure echo ──────────────────────────────────────────
+  // pulseIn returns duration in MICROSECONDS, 0 on timeout
+  long duration_us = pulseIn(ECHO_PIN, HIGH, 30000UL);
 
-  // Calculate distance through shared sensor logic.
-  distanceCm = calculateDistanceCm(duration);
+  if (duration_us == 0) {
+    Serial.println("[FAULT] No echo — sensor timeout or out of range");
+    delay(1000);
+    return;
+  }
 
-  Serial.print("Distance: ");
-  Serial.print(distanceCm, 2);
-  Serial.println(" cm");
+  // ── Distance conversion ────────────────────────────────────
+  // dist = (duration_µs × speed_m/µs) / 2   (round trip → halve)
+  float dist_m = duration_us * SPEED_OF_SOUND_M_PER_US / 2.0f;
+
+  // ── Logic functions from water_tank.cpp ───────────────────
+  float height_m = distanceToHeight(dist_m, TANK_HEIGHT_M);
+  float volume_L = heightToVolume(height_m, TANK_RADIUS_M);
+  bool  low = isWaterLow(height_m, TANK_MIN_LEVEL_M);
+
+  // ── Serial report ─────────────────────────────────────────
+  Serial.print("[WATER] dist=");   Serial.print(dist_m * 100.0f, 1); Serial.print(" cm");
+  Serial.print("  h=");            Serial.print(height_m * 100.0f, 1); Serial.print(" cm");
+  Serial.print("  V=");            Serial.print(volume_L, 1); Serial.print(" L");
+  if (low) Serial.print("  *** LOW LEVEL ***");
+  Serial.println();
 
   delay(1000);
 }
