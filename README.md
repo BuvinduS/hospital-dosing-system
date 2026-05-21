@@ -109,17 +109,41 @@ The system:
 
 ## Software Architecture
 
+### Single Entry Point, Modular Logic
+
+The firmware has exactly one `main.cpp` — required by the Arduino framework. All other functionality is split into header/source pairs and `#include`-d into `main.cpp`. This is the key architectural rule:
+
+- **`main.cpp`** — the only file that touches hardware (`pinMode`, `pulseIn`, `analogRead`, `digitalWrite`, `Serial`). It calls logic functions and passes values around.
+- **`include/*.h`** — function declarations. No hardware calls, no `#include <Arduino.h>`.
+- **`src/*.cpp`** — logic implementations. Pure math and state — testable on a PC without any hardware.
+- **`include/config.h`** — all physical constants, thresholds, and pin definitions in one place.
+
+```
+main.cpp
+  │
+  ├── #include "config.h"          → all constants (TANK_HEIGHT_M, TRIG_PIN, ...)
+  ├── #include "water_tank.h"      → distanceToHeight(), heightToVolume(), isWaterLow()
+  ├── #include "chem_tank.h"       → pulseToVolume(), massToVolume(), isMismatch()
+  ├── #include "fault_manager.h"   → evaluateFaults(), getFaultSeverity()
+  ├── #include "refill_queue.h"    → enqueue(), dequeue(), isEmpty()
+  ├── #include "alarm_manager.h"   → setAlarm(), clearAlarm()
+  └── #include "mqtt_client.h"     → publishTopic(), handleMessage()
+```
+
+This boundary is what makes unit testing possible — the test files include the same headers and call the same logic functions, with no hardware involved at all.
+
 ### Firmware Modules
 
-| Module | Location | Responsibility |
+| Header | Source | Responsibility |
 |---|---|---|
-| Water tank sensing | `src/sensors/water_tank.cpp` | Ultrasonic read, height/volume calculation |
-| Chemical tank sensing | `src/sensors/chem_tank.cpp` | Flow pulse accumulation, load cell read |
-| Fault detection | `src/faults/fault_manager.cpp` | All fault condition evaluation |
-| Refill queue | `src/control/refill_queue.cpp` | FIFO queue, sequential dispatch |
-| MQTT client | `src/comms/mqtt_client.cpp` | Publish/subscribe, topic management |
-| Alarm manager | `src/alarms/alarm_manager.cpp` | Buzzer and LED control |
-| Data logger | `src/logging/logger.cpp` | Usage record formatting and storage |
+| `include/config.h` | — | All constants, thresholds, pin definitions |
+| `include/water_tank.h` | `src/water_tank.cpp` | Height/volume formulas, low-level flag |
+| `include/chem_tank.h` | `src/chem_tank.cpp` | Flow accumulation, mass-to-volume, mismatch |
+| `include/fault_manager.h` | `src/fault_manager.cpp` | All fault condition evaluation and severity |
+| `include/refill_queue.h` | `src/refill_queue.cpp` | FIFO queue, sequential dispatch logic |
+| `include/alarm_manager.h` | `src/alarm_manager.cpp` | Alarm state, severity mapping |
+| `include/mqtt_client.h` | `src/mqtt_client.cpp` | Publish/subscribe, topic formatting |
+| `src/main.cpp` | — | Hardware calls, `setup()`, `loop()` |
 
 ### Communication Protocol
 
@@ -157,26 +181,48 @@ All payloads are JSON:
 ```
 iot-chemical-dosing/
 │
-├── src/                          # Main firmware source
-│   └── main.cpp                  # Entry point (setup + loop)
+├── src/                          # Firmware source files
+│   ├── main.cpp                  # ONLY file with hardware calls — setup() + loop()
+│   ├── water_tank.cpp            # Water tank logic implementation
+│   ├── chem_tank.cpp             # Chemical tank logic implementation
+│   ├── fault_manager.cpp         # Fault detection logic
+│   ├── refill_queue.cpp          # FIFO queue implementation
+│   ├── alarm_manager.cpp         # Alarm state and output logic
+│   └── mqtt_client.cpp           # MQTT publish/subscribe logic
 │
-├── include/                      # Shared header files
-│   └── config.h                  # Tank dimensions, thresholds, pin definitions
+├── include/                      # Header files — declarations only, no hardware
+│   ├── config.h                  # All constants: tank dimensions, thresholds, pins
+│   ├── water_tank.h              # distanceToHeight(), heightToVolume(), isWaterLow()
+│   ├── chem_tank.h               # pulseToVolume(), massToVolume(), isMismatch()
+│   ├── fault_manager.h           # evaluateFaults(), FaultType enum
+│   ├── refill_queue.h            # enqueue(), dequeue(), isEmpty()
+│   ├── alarm_manager.h           # setAlarm(), AlarmSeverity enum
+│   └── mqtt_client.h             # publishTopic(), topic string constants
 │
-├── lib/                          # Project-local libraries (PlatformIO)
+├── test/                         # Unit tests — PlatformIO + Unity framework
+│   └── native/                   # Run on PC — no hardware required
+│       ├── test_water_tank/
+│       │   └── test_water_tank.cpp
+│       ├── test_chem_tank/
+│       │   └── test_chem_tank.cpp
+│       ├── test_fault_manager/
+│       │   └── test_fault_manager.cpp
+│       └── test_refill_queue/
+│           └── test_refill_queue.cpp
 │
-├── test/                         # Unit tests (PlatformIO Unity framework)
+├── lib/                          # Project-local third-party libraries (PlatformIO)
 │
 ├── docs/                         # Project documentation
 │   ├── architecture.md           # Full system architecture description
 │   ├── mqtt-topics.md            # MQTT topic reference
 │   ├── fault-detection.md        # Fault logic specification
+│   ├── testing.md                # Testing strategy and how to run tests
 │   ├── wiring/                   # Pin mapping and wiring diagrams
 │   │   └── phase1-wiring.md
 │   └── formulas.md               # All sensor math with derivations
 │
 ├── diagram.json                  # Wokwi circuit diagram
-├── platformio.ini                # PlatformIO build configuration
+├── platformio.ini                # PlatformIO build + test environment config
 ├── wokwi.toml                    # Wokwi VS Code extension configuration
 ├── .gitignore                    # Git ignore rules
 ├── CHANGELOG.md                  # Version history
@@ -193,8 +239,8 @@ This project is built and verified in modular phases. Each phase is a separate G
 | Phase | Branch | Status | Description |
 |---|---|---|---|
 | 1a | `phase/1a-ultrasonic` | ✅ Complete | HC-SR04 raw distance reading, serial output confirmed |
-| 1b | `phase/1b-water-math` | 🔄 Next | Height and volume formulas, low-level fault flag |
-| 1c | `phase/1c-flow-meter` | ⏳ Pending | Simulated flow pulse accumulation (push button) |
+| 1b | `phase/1b-water-math` | ✅ Complet | Height and volume formulas, low-level fault flag |
+| 1c | `phase/1c-flow-meter` | 🔄 Next | Simulated flow pulse accumulation (push button) |
 | 1d | `phase/1d-load-cell` | ⏳ Pending | Simulated load cell via potentiometer ADC |
 | 1e | `phase/1e-crosscheck` | ⏳ Pending | Flow vs load cell mismatch detection |
 | 1f | `phase/1f-dashboard` | ⏳ Pending | Unified serial report, all Phase 1 sensors combined |
@@ -229,10 +275,26 @@ Never commit directly to `main`. Every phase branch is merged via pull request a
 | Tool | Version | Purpose |
 |---|---|---|
 | VS Code | Latest | IDE |
-| PlatformIO IDE extension | Latest | ESP32 build toolchain |
+| PlatformIO IDE extension | Latest | ESP32 build toolchain and test runner |
 | Wokwi VS Code extension | Latest | Local circuit simulation |
 | Wokwi license | Free tier | Required for local simulation |
 | Git | Any | Version control |
+
+### `platformio.ini` Configuration
+
+The project uses two environments — one for building/simulating on the ESP32-S3, one for running unit tests natively on your PC:
+
+```ini
+[env:esp32-s3-devkitc-1]
+platform      = espressif32
+board         = esp32-s3-devkitc-1
+framework     = arduino
+monitor_speed = 115200
+
+[env:native]
+platform    = native
+test_filter = native/*
+```
 
 ### Installation
 
@@ -254,6 +316,32 @@ PlatformIO will automatically detect `platformio.ini` and download the required 
 **3. Activate your Wokwi license**
 
 Press `Ctrl+Shift+P` → `Wokwi: Request a New License` and follow the browser prompt. A free Wokwi account is sufficient.
+
+### Running Unit Tests
+
+Unit tests run natively on your PC — no board, no simulation, no build wait. They test all logic functions in isolation.
+
+**Run all native tests:**
+```bash
+pio test -e native
+```
+
+**Run tests for a specific module:**
+```bash
+pio test -e native -f native/test_water_tank
+```
+
+**Expected output:**
+```
+test/native/test_water_tank/test_water_tank.cpp:28:test_full_tank_gives_zero_height  [PASSED]
+test/native/test_water_tank/test_water_tank.cpp:34:test_zero_distance_gives_full_height [PASSED]
+...
+-----------------------
+10 Tests 0 Failures 0 Ignored
+OK
+```
+
+**Rule:** run `pio test -e native` before every Wokwi simulation run. Tests catch logic bugs in seconds. If tests pass and simulation fails, the bug is in the hardware interaction code in `main.cpp` — not in the logic.
 
 ### Running the Simulation
 
