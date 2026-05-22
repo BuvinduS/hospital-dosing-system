@@ -10,9 +10,9 @@ Versions correspond to completed development phases, not semantic releases.
 ## [Unreleased]
 
 Planned for next commit:
-- Phase 1c: Chemical flow meter simulation (push button pulse accumulation)
-- `lib/chem_tank/` module with pulse-to-volume conversion logic
-- `test/native/test_chem_tank/` unit tests
+- Phase 1f: Unified serial dashboard and `include/config.h` consolidation
+- Move all physical constants and pin definitions out of `main.cpp` into `include/config.h`
+- Clean up serial report format as reference output for future MQTT payloads
 
 ---
 
@@ -86,6 +86,43 @@ Planned for next commit:
 ### Simulation Verified
 - pio test -e native: 18 Tests 0 Failures 0 Ignored
 
+
+## [Phase 1e] — Chemical Tank Sensing and Interrupt-Driven Pulse Counting
+
+### Added
+- `lib/chem_tank/chem_tank.h` and `lib/chem_tank/chem_tank.cpp` — chemical tank
+  logic module with six functions: `pulseToVolume()`, `updateRemaining()`,
+  `adcToMass()`, `massToVolume()`, `isMismatch()`, `isChemLow()`
+- `test/native/test_chem_tank/test_chem_tank.cpp` — 34 unit tests covering all
+  functions, boundary conditions, clamping, dispense cycle simulation, and
+  leak detection scenario
+- Interrupt-driven pulse counting via `attachInterrupt()` and `IRAM_ATTR` ISR —
+  replaces polling approach which missed pulses during `pulseIn()` blocking
+- ISR-level debounce using `millis()` timestamp comparison (50 ms window)
+- `volatile` qualifiers on `pendingPulses` and `lastDebounce` for ISR-safe
+  shared variable access
+- Atomic pulse drain in `processPendingPulses()` using `noInterrupts()` /
+  `interrupts()` guard
+- Load cell simulated via potentiometer on GPIO6 (ADC)
+- Flow meter simulated via push button on GPIO4 (interrupt on FALLING edge)
+- Mismatch detection cross-checks flow estimate against load cell estimate
+  with 200 mL tolerance
+
+### Changed
+- Phases 1c and 1d implemented within this phase — flow meter accumulation
+  and load cell ADC reading built and verified together with cross-check logic
+- `main.cpp` updated with `readLoadCellVolume()` and `processPendingPulses()`
+  hardware interface functions
+- TODO comment updated from Phase 1b to Phase 1f for `config.h` migration
+
+### Simulation Verified
+- `pio test -e native`: 52 Tests 0 Failures 0 Ignored (both modules)
+- HC-SR04 slider updates water height and volume correctly
+- Button press registers as single pulse with interrupt debounce
+- Potentiometer adjusts load cell estimate in real time
+- Mismatch fault triggers when flow estimate and load cell diverge > 200 mL
+- Mismatch clears when potentiometer is adjusted back into agreement
+- Fault LED and OK LED respond correctly to system status
 
 ---
 
