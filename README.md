@@ -5,7 +5,7 @@
 [![Framework](https://img.shields.io/badge/framework-Arduino-teal)]()
 [![Simulation](https://img.shields.io/badge/simulation-Wokwi-purple)]()
 [![License](https://img.shields.io/badge/license-MIT-orange)]()
-[![Phase](https://img.shields.io/badge/phase-1a%20complete-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-1b%20complete-brightgreen)]()
 
 An industrial-grade IoT system for automated dilution, dosing, and distribution of disinfectant chemicals in hospital environments. Designed for precision, safety, and fault tolerance using distributed ESP32 nodes communicating over MQTT.
 
