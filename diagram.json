@@ -3,14 +3,96 @@
   "author": "Hospital Dosing System — Phase 1",
   "editor": "wokwi",
   "parts": [
+    {
+      "type": "wokwi-breadboard-half",
+      "id": "bb1",
+      "top": -253.5,
+      "left": -342.3,
+      "rotate": 90,
+      "attrs": { "color": "#eeefed" }
+    },
     { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": -0.18, "left": 4.57, "attrs": {} },
-    { "type": "wokwi-hc-sr04", "id": "ultrasonic", "top": -228.9, "left": 91.9, "attrs": { "distance": "40" } }
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "ultrasonic",
+      "top": -219.3,
+      "left": 283.9,
+      "attrs": { "distance": "40" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn1",
+      "top": 85.8,
+      "left": -150.6,
+      "attrs": { "color": "green"}
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot1",
+      "top": -212.5,
+      "left": 134.2,
+      "attrs": { "value": "0.5" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -212.4,
+      "left": -233.4,
+      "rotate": 90,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -135.6,
+      "left": -233.4,
+      "rotate": 90,
+      "attrs": { "color": "limegreen" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -197.65,
+      "left": -192,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": -120.85,
+      "left": -192,
+      "attrs": { "value": "220" }
+    }
   ],
   "connections": [
-    [ "esp:GND.2",       "ultrasonic:GND",  "black",  ["v0","h96"] ],
-    [ "esp:3V3.1",       "ultrasonic:VCC",  "red",    ["v-134.4","h153.55"] ],
-    [ "ultrasonic:TRIG", "esp:5",           "purple", ["v240","h-0.4"] ],
-    [ "ultrasonic:ECHO", "esp:17",          "green",  ["h-0.8","v249.6"] ],
+    [ "ultrasonic:TRIG", "esp:5", "purple", [ "v230.4", "h-269.2" ] ],
+    [ "ultrasonic:ECHO", "esp:17", "green", [ "h-0.8", "v249.6" ] ],
+    [ "esp:3V3.1", "bb1:tp.25", "red", [ "v0" ] ],
+    [ "esp:GND.2", "bb1:tn.24", "black", [ "v0" ] ],
+    [ "ultrasonic:VCC", "bb1:tp.23", "red", [ "v0" ] ],
+    [ "ultrasonic:GND", "bb1:tn.23", "black", [ "v76.8", "h-289.2" ] ],
+    [ "pot1:VCC", "bb1:tp.19", "red", [ "v0" ] ],
+    [ "pot1:GND", "bb1:tn.19", "black", [ "v86.4", "h-259.2" ] ],
+    [ "pot1:SIG", "esp:6", "purple", [ "v48", "h-211.6", "v172.8" ] ],
+    [ "btn1:1.l", "esp:GND.1", "black", [ "h-22.2", "v-60.4", "h76.8" ] ],
+    [ "btn1:2.l", "esp:4", "green", [ "h-3", "v16.6", "h124.8", "v-76.8" ] ],
+    [ "led2:A", "bb1:20b.j", "", [ "$bb" ] ],
+    [ "led2:C", "bb1:19b.j", "", [ "$bb" ] ],
+    [ "led1:A", "bb1:12b.j", "", [ "$bb" ] ],
+    [ "led1:C", "bb1:11b.j", "", [ "$bb" ] ],
+    [
+      "esp:15",
+      "bb1:12b.f",
+      "red",
+      [ "h-28.85", "v38.4", "h0", "v28.8", "h-192", "v-172.8", "h28.8", "v-172.8" ]
+    ],
+    [ "esp:16", "bb1:20b.f", "red", [ "h-19.25", "v76.8", "h-211.2", "v-153.6", "h28.8", "v0" ] ],
+    [ "r1:1", "bb1:11b.f", "", [ "$bb" ] ],
+    [ "r1:2", "bb1:11t.b", "", [ "$bb" ] ],
+    [ "r2:1", "bb1:19b.f", "", [ "$bb" ] ],
+    [ "r2:2", "bb1:19t.b", "", [ "$bb" ] ],
+    [ "bb1:tn.16", "bb1:19t.a", "black", [ "h0" ] ],
+    [ "bb1:11t.a", "bb1:tn.9", "black", [ "h0" ] ],
     [ "esp:TX",          "$serialMonitor:RX", "", [] ],
     [ "esp:RX",          "$serialMonitor:TX", "", [] ]
   ],
