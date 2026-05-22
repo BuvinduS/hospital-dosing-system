@@ -51,6 +51,8 @@ static unsigned long lastReport = 0;
 static constexpr unsigned long REPORT_MS = 1000;
 
 // ============================================================
+// For debouncing
+static volatile unsigned long  lastDebounce = 0;
 
 // ── Interrupt-driven button handling ─────────────────────────
 volatile long pendingPulses = 0;
@@ -59,7 +61,11 @@ volatile long pendingPulses = 0;
 // This is crucial for interrupt service routines (ISRs) because they need to execute quickly and reliably, without the latency that can come from fetching code from flash memory. 
 //By placing an ISR in IRAM, you ensure that it can be executed with minimal delay, which is essential for handling time-sensitive tasks in embedded systems.
 void IRAM_ATTR onButtonPress() {
-  pendingPulses++;
+  unsigned long now = millis();
+  if (now - lastDebounce >= 50) {   // 50ms debounce window
+    pendingPulses++;
+    lastDebounce = now;
+  }
 }
 
 void setup() {
