@@ -1,6 +1,6 @@
 // ============================================================
 //  IoT Chemical Dosing System — Hospital
-//  Phase 1e: Water tank + Chemical tank sensing
+//  Phase 1f: Config consolidation and unified serial dashboard
 //
 //  Hardware: ESP32-S3-DevKitC-1
 //  Simulator: Wokwi (VS Code extension)
@@ -12,35 +12,13 @@
 //  Indicators:
 //    Fault LED    — GPIO15 (red)
 //    OK LED       — GPIO16 (green)
+//  Rules:
+//    - All config constants in include/config.h
 // ============================================================
 #include <Arduino.h>
 #include "water_tank.h"
 #include "chem_tank.h"
-
-// ── Pin definitions ──────────────────────────────────────────
-#define TRIG_PIN 5
-#define ECHO_PIN 17
-#define FLOWPULSE_PIN   4    // push button — simulates flow meter pulses
-#define LOADCELL_PIN    6    // potentiometer — simulates load cell ADC
-#define LED_FAULT       15
-#define LED_OK          16
-
-// ── Physical constants ───────────────────────────────────────
-// TODO: move to include/config.h in Phase 1f
-// ── Water tank constants ─────────────────────────────────────
-static constexpr float SPEED_OF_SOUND_M_PER_US = 0.000343f; // 343 m/s → m/µs
-static constexpr float TANK_HEIGHT_M = 10.19f;  // metres — derived from V=2000L, d=50cm
-static constexpr float TANK_RADIUS_M = 0.25f;   // metres — diameter 50cm as per spec
-static constexpr float TANK_MIN_LEVEL_M = 0.10f;
-
-// ── Chemical tank constants ───────────────────────────────────
-static constexpr float CHEM_INITIAL_VOL_L = 10.0f;
-static constexpr float CHEM_LOW_THRESHOLD_L = 0.50f;
-static constexpr float CHEM_DENSITY_KG_L = 1.05f;
-static constexpr float MISMATCH_TOLERANCE_L = 0.20f;
-static constexpr float ML_PER_PULSE = 5.0f;
-static constexpr float LOADCELL_MAX_KG = 12.0f;
-static constexpr int   ADC_MAX = 4095;
+#include "config.h"
 
 // ── Runtime state ─────────────────────────────────────────────
 static float  chemRemaining_L = CHEM_INITIAL_VOL_L;
@@ -48,7 +26,6 @@ static long   totalPulses = 0;
 
 // ── Report timing ─────────────────────────────────────────────
 static unsigned long lastReport = 0;
-static constexpr unsigned long REPORT_MS = 1000;
 
 // ============================================================
 // For debouncing
@@ -62,7 +39,7 @@ volatile long pendingPulses = 0;
 //By placing an ISR in IRAM, you ensure that it can be executed with minimal delay, which is essential for handling time-sensitive tasks in embedded systems.
 void IRAM_ATTR onButtonPress() {
   unsigned long now = millis();
-  if (now - lastDebounce >= 50) {   // 50ms debounce window
+  if (now - lastDebounce >= DEBOUNCE_MS) {   // 50ms debounce window
     pendingPulses++;
     lastDebounce = now;
   }
