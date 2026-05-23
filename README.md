@@ -243,8 +243,8 @@ This project is built and verified in modular phases. Each phase is a separate G
 | 1c | `phase/1c-flow-meter` | ✅ Complete | Simulated flow pulse accumulation (push button) |
 | 1d | `phase/1d-load-cell` | ✅ Complete | Simulated load cell via potentiometer ADC |
 | 1e | `phase/1e-crosscheck` | ✅ Complete | Flow vs load cell mismatch detection |
-| 1f | `phase/1f-dashboard` | 🔄 Next | Unified serial report, all Phase 1 sensors combined |
-| 2a | `phase/2a-solenoid` | ⏳ Pending | Solenoid valve control with flow meter feedback |
+| 1f | `phase/1f-dashboard` | ✅ Complete | Unified serial report, all Phase 1 sensors combined |
+| 2a | `phase/2a-solenoid` | 🔄 Next | Solenoid valve control with flow meter feedback |
 | 2b | `phase/2b-pump` | ⏳ Pending | PWM pump control with chemical flow meter |
 | 2c | `phase/2c-dosing-logic` | ⏳ Pending | Target volume accumulation, ratio verification |
 | 3a | `phase/3a-tank-node` | ⏳ Pending | Dispensing tank ESP32 node, MQTT publish |
