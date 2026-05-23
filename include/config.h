@@ -20,6 +20,11 @@
 #define LOADCELL_PIN    6     // load cell ADC input (potentiometer in simulation)
 #define LED_FAULT       15    // red fault indicator LED
 #define LED_OK          16    // green status LED
+#define SOLENOID_PIN    7     // water solenoid valve (LED in simulation)
+#define WATER_FLOW_PIN  8     // water flow meter (button in simulation)
+
+#define REFILL_REQUEST_PIN  9   // temp: simulates dispensing tank request
+                                // Phase 4: replaced by MQTT subscription
 
 // ── Water tank ───────────────────────────────────────────────
 // Geometry derived from spec: V ≈ 2000L, diameter = 50cm
@@ -41,3 +46,10 @@ constexpr int   ADC_MAX = 4095;     // 12-bit ADC maximum value
 // ── Timing ────────────────────────────────────────────────────
 constexpr unsigned long REPORT_MS = 1000;    // serial report interval (ms)
 constexpr unsigned long DEBOUNCE_MS = 50;      // ISR debounce window (ms)
+
+// ── Solenoid valve and water dosing ──────────────────────────
+constexpr float    DISPENSE_TARGET_L = 0.60f;   // 600mL per refill cycle
+constexpr float    STUCK_VALVE_TOL_L = 0.01f;   // 10mL flow after close = stuck
+constexpr unsigned long DOSING_TIMEOUT_MS = 30000UL; // 30s max for one dispense
+constexpr unsigned long BLOCKED_GRACE_MS = 5000UL;  // 5s grace to detect flow
+constexpr unsigned long CLOSING_VERIFY_MS = 3000UL;  // 3s to verify flow stopped

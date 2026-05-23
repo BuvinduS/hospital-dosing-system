@@ -35,7 +35,7 @@
     },
     {
       "type": "wokwi-led",
-      "id": "led1",
+      "id": "led-FAULT",
       "top": -212.4,
       "left": -233.4,
       "rotate": 90,
@@ -43,7 +43,7 @@
     },
     {
       "type": "wokwi-led",
-      "id": "led2",
+      "id": "led-OK",
       "top": -135.6,
       "left": -233.4,
       "rotate": 90,
@@ -62,6 +62,35 @@
       "top": -120.85,
       "left": -192,
       "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_solenoid",
+      "top": -260.4,
+      "left": -233.4,
+      "rotate": 90,
+      "attrs": { "color": "magenta" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_req_refill",
+      "top": 303.8,
+      "left": -374.4,
+      "attrs": { "color": "red", "xray": "1" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_refill",
+      "top": 198.2,
+      "left": -374.4,
+      "attrs": { "color": "blue", "xray": "1" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r3",
+      "top": -245.65,
+      "left": -192,
+      "attrs": { "value": "220" }
     }
   ],
   "connections": [
@@ -74,27 +103,41 @@
     [ "pot1:VCC", "bb1:tp.19", "red", [ "v0" ] ],
     [ "pot1:GND", "bb1:tn.19", "black", [ "v86.4", "h-259.2" ] ],
     [ "pot1:SIG", "esp:6", "purple", [ "v48", "h-211.6", "v172.8" ] ],
-    [ "btn1:1.l", "esp:GND.1", "black", [ "h-22.2", "v-60.4", "h76.8" ] ],
-    [ "btn1:2.l", "esp:4", "green", [ "h-3", "v16.6", "h124.8", "v-76.8" ] ],
-    [ "led2:A", "bb1:20b.j", "", [ "$bb" ] ],
-    [ "led2:C", "bb1:19b.j", "", [ "$bb" ] ],
-    [ "led1:A", "bb1:12b.j", "", [ "$bb" ] ],
-    [ "led1:C", "bb1:11b.j", "", [ "$bb" ] ],
+    [ "btn1:1.l", "bb1:tn.25", "black", [ "h-22.2", "v-60.4", "h76.8" ] ],
+    [ "btn1:2.l", "esp:4", "green", [ "h-3", "v16.6", "h105.6", "v-76.8" ] ],
     [
       "esp:15",
       "bb1:12b.f",
       "red",
-      [ "h-28.85", "v38.4", "h0", "v28.8", "h-192", "v-172.8", "h28.8", "v-172.8" ]
+      [ "h-48.05", "v67.2", "h-172.8", "v-211.2", "h28.8", "v-134.4" ]
     ],
-    [ "esp:16", "bb1:20b.f", "red", [ "h-19.25", "v76.8", "h-211.2", "v-153.6", "h28.8", "v0" ] ],
+    [ "esp:16", "bb1:20b.f", "red", [ "h-38.45", "v76.8", "h-192", "v-153.6", "h28.8" ] ],
+    [ "bb1:tn.16", "bb1:19t.a", "black", [ "h0" ] ],
+    [ "bb1:11t.a", "bb1:tn.9", "black", [ "h0" ] ],
+    [ "esp:7", "bb1:7b.f", "limegreen", [ "h-67.25", "v-220.8", "h0", "v-96" ] ],
+    [ "bb1:6t.a", "bb1:tn.5", "black", [ "h0" ] ],
+    [ "led-FAULT:A", "bb1:12b.j", "", [ "$bb" ] ],
+    [ "led-FAULT:C", "bb1:11b.j", "", [ "$bb" ] ],
+    [ "led-OK:A", "bb1:20b.j", "", [ "$bb" ] ],
+    [ "led-OK:C", "bb1:19b.j", "", [ "$bb" ] ],
     [ "r1:1", "bb1:11b.f", "", [ "$bb" ] ],
     [ "r1:2", "bb1:11t.b", "", [ "$bb" ] ],
     [ "r2:1", "bb1:19b.f", "", [ "$bb" ] ],
     [ "r2:2", "bb1:19t.b", "", [ "$bb" ] ],
-    [ "bb1:tn.16", "bb1:19t.a", "black", [ "h0" ] ],
-    [ "bb1:11t.a", "bb1:tn.9", "black", [ "h0" ] ],
+    [ "led_solenoid:A", "bb1:7b.j", "", [ "$bb" ] ],
+    [ "led_solenoid:C", "bb1:6b.j", "", [ "$bb" ] ],
+    [ "r3:1", "bb1:6b.f", "", [ "$bb" ] ],
+    [ "r3:2", "bb1:6t.b", "", [ "$bb" ] ],
+    [ "btn_refill:1.l", "bb1:tn.18", "black", [ "h-28.8", "v-299.2" ] ],
+    [ "btn_refill:2.r", "esp:8", "green", [ "h288.2", "v-95.8" ] ],
+    [ "btn_req_refill:1.l", "bb1:tn.14", "black", [ "h-48", "v-451.2" ] ],
+    [ "esp:9", "btn_req_refill:2.r", "green", [ "h-19.25", "v172.6" ] ],
     [ "esp:TX",          "$serialMonitor:RX", "", [] ],
     [ "esp:RX",          "$serialMonitor:TX", "", [] ]
   ],
   "dependencies": {}
 }
+
+
+
+
