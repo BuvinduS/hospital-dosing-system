@@ -134,63 +134,58 @@ void loop() {
   if (millis() - lastReport >= REPORT_MS) {
     lastReport = millis();
 
-    // ── Water tank ────────────────────────────────────────
+    // ── Sensor reads ──────────────────────────────────────
     float dist_m = readDistanceMetres();
-
-    bool  waterFault = false;
-    float height_m = 0.0f;
-    float volume_L = 0.0f;
-    bool  waterLow = false;
-
-    if (dist_m < 0.0f) {
-      waterFault = true;
-      Serial.println("[WATER] FAULT — ultrasonic timeout");
-    }
-    else {
-      height_m = distanceToHeight(dist_m, TANK_HEIGHT_M);
-      volume_L = heightToVolume(height_m, TANK_RADIUS_M);
-      waterLow = isWaterLow(height_m, TANK_MIN_LEVEL_M);
-
-      Serial.print("[WATER] dist=");
-      Serial.print(dist_m * 100.0f, 1);
-      Serial.print(" cm  h=");
-      Serial.print(height_m * 100.0f, 1);
-      Serial.print(" cm  V=");
-      Serial.print(volume_L, 1);
-      Serial.print(" L");
-      if (waterLow) Serial.print("  *** LOW ***");
-      Serial.println();
-    }
-
-    // ── Chemical tank — flow meter estimate ───────────────
-    Serial.print("[CHEM ] flow_est=");
-    Serial.print(chemRemaining_L, 3);
-    Serial.print(" L  pulses=");
-    Serial.print(totalPulses);
-    bool chemLow = isChemLow(chemRemaining_L, CHEM_LOW_THRESHOLD_L);
-    if (chemLow) Serial.print("  *** LOW ***");
-    Serial.println();
-
-    // ── Chemical tank — load cell estimate ────────────────
     float lcVol_L = readLoadCellVolume();
 
-    // ── Chemical tank — mismatch detection ─────────────── 
-    bool  mismatch = isMismatch(chemRemaining_L, lcVol_L, MISMATCH_TOLERANCE_L);
+    // ── Water tank calculations ───────────────────────────
+    bool  waterFault = (dist_m < 0.0f);
+    float height_m = waterFault ? 0.0f : distanceToHeight(dist_m, TANK_HEIGHT_M);
+    float volume_L = waterFault ? 0.0f : heightToVolume(height_m, TANK_RADIUS_M);
+    bool  waterLow = waterFault ? false : isWaterLow(height_m, TANK_MIN_LEVEL_M);
 
-    Serial.print("[CHEM ] loadcell_est=");
-    Serial.print(lcVol_L, 3);
-    Serial.print(" L");
+    // ── Chemical tank calculations ────────────────────────
+    bool chemLow = isChemLow(chemRemaining_L, CHEM_LOW_THRESHOLD_L);
+    bool mismatch = isMismatch(chemRemaining_L, lcVol_L, MISMATCH_TOLERANCE_L);
 
-    if (mismatch) Serial.print("  *** MISMATCH - check for potential leak/spill ***");
-    Serial.println();
-
-    // ── Status summary ───────────────────────────────────────
+    // ── Fault summary ─────────────────────────────────────
     bool anyFault = waterFault || waterLow || chemLow || mismatch;
-    Serial.print("[STATUS] ");
-    Serial.println(anyFault ? "FAULT" : "OK");
-    Serial.println("============================================================");
 
-    // Update LEDs at end of cycle
+    // ── Serial dashboard ──────────────────────────────────
+    unsigned long t = millis() / 1000;
+    Serial.println("+--------------------------------------------------+");
+    Serial.print("| T="); Serial.print(t); Serial.println("s");
+    Serial.println("+--------------------------------------------------+");
+
+    // Water tank
+    Serial.print("| [WATER] ");
+    if (waterFault) {
+      Serial.println("FAULT — ultrasonic timeout");
+    }
+    else {
+      Serial.print("dist="); Serial.print(dist_m * 100.0f, 1); Serial.print("cm  ");
+      Serial.print("h=");    Serial.print(height_m * 100.0f, 1); Serial.print("cm  ");
+      Serial.print("V=");    Serial.print(volume_L, 1); Serial.println("L");
+      Serial.print("|         ");
+      Serial.println(waterLow ? "*** WATER LOW ***" : "OK");
+    }
+
+    // Chemical tank
+    Serial.print("| [CHEM ] ");
+    Serial.print("flow="); Serial.print(chemRemaining_L, 3); Serial.print("L  ");
+    Serial.print("lc=");   Serial.print(lcVol_L, 3); Serial.print("L  ");
+    Serial.print("pulses="); Serial.println(totalPulses);
+    Serial.print("|         ");
+    if (chemLow)  Serial.println("*** CHEM LOW ***");
+    else if (mismatch) Serial.println("*** MISMATCH — check for leak/spill ***");
+    else               Serial.println("OK");
+
+    // Status
+    Serial.println("+--------------------------------------------------+");
+    Serial.print("| [STATUS] ");
+    Serial.println(anyFault ? "FAULT" : "OK");
+    Serial.println("+--------------------------------------------------+");
+
     updateLEDs(anyFault);
   }
 }
