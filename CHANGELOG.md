@@ -10,11 +10,82 @@ Versions correspond to completed development phases, not semantic releases.
 ## [Unreleased]
 
 Planned for next commit:
-- Phase 2a: Solenoid valve control with water flow meter feedback
-- `lib/solenoid/` module — valve open/close logic, flow verification
-- `test/native/test_solenoid/` unit tests
+- Phase 3a: Dispensing tank ESP32 node — low level sensor + MQTT publish
+- `lib/refill_queue/` module — FIFO queue management
+- `test/native/test_refill_queue/` unit tests
 
 ---
+
+## [Phase 2b] — Simultaneous Chemical Pump Dosing
+
+### Added
+- `lib/pump/pump.h` and `lib/pump/pump.cpp` — chemical pump logic:
+  `chemTargetVolume()`, `isPumpFailure()`, `isRatioCorrect()`,
+  `isChemTargetReached()`
+- `test/native/test_pump/test_pump.cpp` — 22 unit tests covering
+  all pump functions, ratio tolerance, integration scenarios
+- `DosingState::TOPPING_UP` — entered when water target reached
+  before chemical target, pump continues until chemical done
+- `DosingFault::PUMP_FAILURE` — detected when no chemical flow
+  within grace period after pump commanded on
+- `chemPumpStopped` boolean flag — prevents repeated pump-stop
+  firing when chemical finishes before water mid-cycle
+- Chemical flow meter on GPIO11, pump LED on GPIO21
+- 1:50 dilution ratio (1/51 chemical fraction) — documented in
+  code comments
+
+### Changed
+- `isRatioCorrect()` uses relative tolerance (10% of target ratio)
+  instead of absolute delta — correctly handles small ratios like 1/51
+- Dosing state machine extended from 5 to 6 states
+- `config.h` updated with pump pin, chem flow pin, dilution ratio,
+  ratio tolerance, pump grace period, top-up timeout
+- `startDosing()` now computes chemical cycle target from water
+  target and dilution ratio at cycle start
+- Dashboard updated with separate water and chemical dispensed
+  volumes and targets per cycle
+
+### Known Limitations
+- Chemical pulse overshoot of up to one pulse volume (5mL) is
+  inherent to pulse-based flow measurement — cannot stop mid-pulse.
+  Accounted for in ratio tolerance and noted in report
+- Simulation only: additional button presses on chemical flow button
+  after pump stop are not blocked — in real hardware the inline flow
+  meter prevents this physically
+
+### Simulation Verified
+- `pio test -e native`: 114 Tests 0 Failures 0 Ignored
+- Simultaneous water and chemical dosing confirmed
+- Pump stops immediately when chemical target reached
+- TOPPING_UP state entered correctly when water finishes first
+- Ratio check fires at CLOSING with correct warning on overshoot
+- Fault detection: pump failure, blocked valve, timeout all trigger
+
+---
+
+## [Phase 2a] — Solenoid Valve Control and Water Dosing Cycle
+
+### Added
+- `lib/solenoid/solenoid.h` and `lib/solenoid/solenoid.cpp` —
+  solenoid valve logic: `isTargetReached()`, `isDosingTimeout()`,
+  `isBlockedValve()`, `isStuckOpen()`, `isSufficientWater()`,
+  `faultToString()`, `stateToString()`
+- `DosingState` and `DosingFault` enums for clean state machine
+- `test/native/test_solenoid/test_solenoid.cpp` — 35 unit tests
+- 5-state dosing machine: IDLE, DOSING, CLOSING, COMPLETE, FAULT
+- Interrupt-driven water flow meter on GPIO8 (IRAM_ATTR ISR)
+- Solenoid valve simulated via LED on GPIO7
+- Temporary refill trigger via button on GPIO9
+- Fault detection: dry tank, blocked valve, stuck valve, timeout
+- `config.h` updated with solenoid and dosing constants
+
+### Simulation Verified
+- `pio test -e native`: 92 Tests 0 Failures 0 Ignored
+- Refill request triggers dosing cycle correctly
+- Water flow accumulates toward target, solenoid closes at target
+- Blocked valve fault after 5s with no flow
+- Stuck valve fault when flow continues after close
+- COMPLETE → IDLE transition confirmed
 
 ## [Phase 1f] — Config Consolidation and Serial Dashboard
 

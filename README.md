@@ -244,10 +244,10 @@ This project is built and verified in modular phases. Each phase is a separate G
 | 1d | `phase/1d-load-cell` | ✅ Complete | Simulated load cell via potentiometer ADC |
 | 1e | `phase/1e-crosscheck` | ✅ Complete | Flow vs load cell mismatch detection |
 | 1f | `phase/1f-dashboard` | ✅ Complete | Unified serial report, all Phase 1 sensors combined |
-| 2a | `phase/2a-solenoid` | 🔄 Next | Solenoid valve control with flow meter feedback |
-| 2b | `phase/2b-pump` | ⏳ Pending | PWM pump control with chemical flow meter |
-| 2c | `phase/2c-dosing-logic` | ⏳ Pending | Target volume accumulation, ratio verification |
-| 3a | `phase/3a-tank-node` | ⏳ Pending | Dispensing tank ESP32 node, MQTT publish |
+| 2a | `phase/2a-solenoid` | ✅ Complete | Solenoid valve control with flow meter feedback |
+| 2b | `phase/2b-pump` | ✅ Complete | PWM pump control with chemical flow meter |
+| 2c | `phase/2c-dosing-logic` | ✅ Complete | Target volume accumulation, ratio verification |
+| 3a | `phase/3a-tank-node` | 🔄 Next | Dispensing tank ESP32 node, MQTT publish |
 | 3b | `phase/3b-refill-cmd` | ⏳ Pending | Refill command subscriber, local valve |
 | 4a | `phase/4a-central-ctrl` | ⏳ Pending | Central controller, queue, pre-checks |
 | 4b | `phase/4b-mqtt-broker` | ⏳ Pending | Full MQTT integration, all nodes |
