@@ -1,6 +1,6 @@
 // ============================================================
 //  IoT Chemical Dosing System — Hospital
-//  Phase 2a: Solenoid valve + water flow meter + dosing cycle
+//  Phase 2b: Simultaneous water + chemical dosing
 //
 //  Hardware: ESP32-S3-DevKitC-1
 //  Simulator: Wokwi (VS Code extension)
@@ -10,33 +10,42 @@
 //    Chem tank    — Push button flow meter sim (GPIO4)
 //                   Potentiometer load cell sim (GPIO6 ADC)
 //  Actuators:
-//    Solenoid     — LED on GPIO7 (green = open)
-//    Water flow   — Push button on GPIO8 (interrupt)
+//    Solenoid     — LED on GPIO7  (magenta = open)
+//    Water flow   — Push button on GPIO8
+//    Chem pump    — LED on GPIO10 (blue = running)
+//    Chem flow    — Push button on GPIO11
 //  Indicators:
 //    Fault LED    — GPIO15 (red)
 //    OK LED       — GPIO16 (green)
 //
+//  Refill trigger — Push button on GPIO9 (temporary — Phase 4: MQTT)
 //  All physical constants and pin definitions in include/config.h
 // ============================================================
 #include <Arduino.h>
 #include "water_tank.h"
 #include "chem_tank.h"
 #include "solenoid.h"
+#include "pump.h"
 #include "config.h"
 
-// ── Runtime state — Phase 1 ───────────────────────────────────
-static float  chemRemaining_L = CHEM_INITIAL_VOL_L;
-static long   totalChemPulses = 0;
+// ── Runtime state — tanks ─────────────────────────────────────
+static float chemRemaining_L = CHEM_INITIAL_VOL_L;
+static long  totalChemPulses = 0;
 
-// ── Runtime state — Phase 2a ──────────────────────────────────
+// ── Runtime state — dosing cycle ──────────────────────────────
 static DosingState dosingState = DosingState::IDLE;
 static DosingFault dosingFault = DosingFault::NONE;
-static float  waterDispensed_L = 0.0f;   // accumulated this cycle
-static float  closingFlow_L = 0.0f;   // flow accumulated after close cmd
+static float waterDispensed_L = 0.0f;
+static float chemDispensed_L = 0.0f;
+static float chemCycleTarget_L = 0.0f;  // computed at cycle start
+static float closingFlow_L = 0.0f;
 static unsigned long dosingStart_ms = 0;
+static unsigned long toppingUpStart_ms = 0;
 static unsigned long closingStart_ms = 0;
+static bool ratioOk = false;
 
-// Phase 2a temporary trigger — replaced by MQTT queue in Phase 4
+// ── Temporary refill trigger ──────────────────────────────────
+// Phase 4: replaced by MQTT queue
 static volatile bool refillRequested = false;
 
 // ── Report timing ─────────────────────────────────────────────
@@ -45,15 +54,19 @@ static unsigned long lastReport = 0;
 // ── Debounce timestamps ───────────────────────────────────────
 static volatile unsigned long lastChemDebounce = 0;
 static volatile unsigned long lastWaterDebounce = 0;
+static volatile unsigned long lastCycleChemDebounce = 0;
 
 // ── Interrupt pulse counters ──────────────────────────────────
-volatile long pendingChemPulses = 0;
-volatile long pendingWaterPulses = 0;
+volatile long pendingChemPulses = 0;  // chemical tank stock tracking
+volatile long pendingWaterPulses = 0;  // water dosing cycle
+volatile long pendingCycleChemPulses = 0;  // chemical dosing cycle
 
 // ============================================================
 //  ISRs
 // ============================================================
-void IRAM_ATTR onChemPulse() {
+
+// Chemical tank stock tracking (GPIO4)
+void IRAM_ATTR onChemStockPulse() {
   unsigned long now = millis();
   if (now - lastChemDebounce >= DEBOUNCE_MS) {
     pendingChemPulses++;
@@ -61,8 +74,7 @@ void IRAM_ATTR onChemPulse() {
   }
 }
 
-// Water flow meter ISR — only counts when valve is open (DOSING or CLOSING)
-// In CLOSING state pulses count toward stuck valve detection
+// Water flow meter — dosing cycle (GPIO8)
 void IRAM_ATTR onWaterPulse() {
   unsigned long now = millis();
   if (now - lastWaterDebounce >= DEBOUNCE_MS) {
@@ -71,24 +83,43 @@ void IRAM_ATTR onWaterPulse() {
   }
 }
 
+// Chemical flow meter — dosing cycle (GPIO11)
+void IRAM_ATTR onCycleChemPulse() {
+  unsigned long now = millis();
+  if (now - lastCycleChemDebounce >= DEBOUNCE_MS) {
+    pendingCycleChemPulses++;
+    lastCycleChemDebounce = now;
+  }
+}
+
 // ============================================================
-//  Solenoid control
+//  Actuator control
 // ============================================================
 void openSolenoid() {
-  digitalWrite(SOLENOID_PIN, HIGH);  // LED on = valve open
+  digitalWrite(SOLENOID_PIN, HIGH);
   Serial.println("  [VALVE] OPEN");
 }
 
 void closeSolenoid() {
-  digitalWrite(SOLENOID_PIN, LOW);   // LED off = valve closed
+  digitalWrite(SOLENOID_PIN, LOW);
   Serial.println("  [VALVE] CLOSE");
 }
 
+void startPump() {
+  digitalWrite(PUMP_PIN, HIGH);
+  Serial.println("  [PUMP ] ON");
+}
+
+void stopPump() {
+  digitalWrite(PUMP_PIN, LOW);
+  Serial.println("  [PUMP ] OFF");
+}
+
 // ============================================================
-//  Process pending pulses from ISRs
+//  Process pending pulses
 // ============================================================
 void processPendingPulses() {
-  // ── Chemical pulses ───────────────────────────────────────
+  // ── Chemical tank stock (GPIO4) ───────────────────────────
   if (pendingChemPulses > 0) {
     noInterrupts();
     long pulses = pendingChemPulses;
@@ -99,13 +130,12 @@ void processPendingPulses() {
     float dispensed = pulseToVolume(pulses, ML_PER_PULSE);
     chemRemaining_L = updateRemaining(chemRemaining_L, dispensed);
 
-    Serial.print("  [CHEM PULSE] #"); Serial.print(totalChemPulses);
-    Serial.print("  +"); Serial.print(dispensed * 1000.0f, 1);
-    Serial.print(" mL  remaining: "); Serial.print(chemRemaining_L, 3);
+    Serial.print("  [CHEM STOCK] #"); Serial.print(totalChemPulses);
+    Serial.print("  remaining: "); Serial.print(chemRemaining_L, 3);
     Serial.println(" L");
   }
 
-  // ── Water pulses ──────────────────────────────────────────
+  // ── Water dosing (GPIO8) ──────────────────────────────────
   if (pendingWaterPulses > 0) {
     noInterrupts();
     long pulses = pendingWaterPulses;
@@ -116,17 +146,35 @@ void processPendingPulses() {
 
     if (dosingState == DosingState::DOSING) {
       waterDispensed_L += vol;
-      Serial.print("  [WATER PULSE] +"); Serial.print(vol * 1000.0f, 1);
-      Serial.print(" mL  dispensed: "); Serial.print(waterDispensed_L * 1000.0f, 1);
-      Serial.print(" mL / "); Serial.print(DISPENSE_TARGET_L * 1000.0f, 0);
+      Serial.print("  [WATER] +"); Serial.print(vol * 1000.0f, 1);
+      Serial.print(" mL  total: "); Serial.print(waterDispensed_L * 1000.0f, 1);
+      Serial.print(" / "); Serial.print(DISPENSE_TARGET_L * 1000.0f, 0);
       Serial.println(" mL");
     }
     else if (dosingState == DosingState::CLOSING) {
       closingFlow_L += vol;
-      Serial.print("  [WATER PULSE] flow after close: ");
-      Serial.print(closingFlow_L * 1000.0f, 1); Serial.println(" mL");
     }
-    // Pulses outside DOSING/CLOSING states are ignored
+  }
+
+  // ── Chemical dosing (GPIO11) ──────────────────────────────
+  if (pendingCycleChemPulses > 0) {
+    noInterrupts();
+    long pulses = pendingCycleChemPulses;
+    pendingCycleChemPulses = 0;
+    interrupts();
+
+    float vol = pulseToVolume(pulses, ML_PER_PULSE);
+
+    if (dosingState == DosingState::DOSING ||
+      dosingState == DosingState::TOPPING_UP) {
+      chemDispensed_L += vol;
+      // Also subtract from stock
+      chemRemaining_L = updateRemaining(chemRemaining_L, vol);
+      Serial.print("  [CHEM ] +"); Serial.print(vol * 1000.0f, 1);
+      Serial.print(" mL  total: "); Serial.print(chemDispensed_L * 1000.0f, 1);
+      Serial.print(" / "); Serial.print(chemCycleTarget_L * 1000.0f, 1);
+      Serial.println(" mL");
+    }
   }
 }
 
@@ -143,14 +191,23 @@ void startDosing(float current_level_m) {
     return;
   }
 
-  // Pre-check passed — begin dosing
+  // Compute chemical target for this cycle
+  chemCycleTarget_L = chemTargetVolume(DISPENSE_TARGET_L, DILUTION_RATIO);
   waterDispensed_L = 0.0f;
-  dosingStart_ms = millis();
+  chemDispensed_L = 0.0f;
+  closingFlow_L = 0.0f;
+  ratioOk = false;
   dosingFault = DosingFault::NONE;
+  dosingStart_ms = millis();
   dosingState = DosingState::DOSING;
+
   openSolenoid();
-  Serial.print("  [DOSE] START — target: ");
+  startPump();
+
+  Serial.print("  [DOSE] START — water target: ");
   Serial.print(DISPENSE_TARGET_L * 1000.0f, 0);
+  Serial.print(" mL  chem target: ");
+  Serial.print(chemCycleTarget_L * 1000.0f, 1);
   Serial.println(" mL");
 }
 
@@ -160,39 +217,95 @@ void updateDosingStateMachine() {
   switch (dosingState) {
 
   case DosingState::IDLE:
-    // Nothing to do — waiting for refill request
     break;
 
   case DosingState::DOSING: {
     unsigned long elapsed = now - dosingStart_ms;
 
-    // Check blocked valve — no flow after grace period
+    // Blocked valve check — no water flow after grace period
     if (isBlockedValve(waterDispensed_L, elapsed, BLOCKED_GRACE_MS)) {
       closeSolenoid();
+      stopPump();
       dosingFault = DosingFault::BLOCKED_VALVE;
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — blocked valve");
       break;
     }
 
-    // Check timeout
+    // Pump failure check — no chemical flow after grace period
+    if (isPumpFailure(chemDispensed_L, elapsed, PUMP_GRACE_MS)) {
+      closeSolenoid();
+      stopPump();
+      dosingFault = DosingFault::PUMP_FAILURE;
+      dosingState = DosingState::FAULT;
+      Serial.println("  [DOSE] FAULT — pump failure");
+      break;
+    }
+
+    // Dosing timeout
     if (isDosingTimeout(elapsed, DOSING_TIMEOUT_MS)) {
       closeSolenoid();
+      stopPump();
       dosingFault = DosingFault::TIMEOUT;
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — timeout");
       break;
     }
 
-    // Check target reached
+    // Water target reached — close solenoid, check if chem done too
     if (isTargetReached(waterDispensed_L, DISPENSE_TARGET_L)) {
       closeSolenoid();
+      Serial.println("  [DOSE] Water target reached");
+
+      if (isChemTargetReached(chemDispensed_L, chemCycleTarget_L)) {
+        // Both done simultaneously — skip TOPPING_UP
+        stopPump();
+        closingFlow_L = 0.0f;
+        closingStart_ms = now;
+        dosingState = DosingState::CLOSING;
+        Serial.println("  [DOSE] Chem also complete — verifying valves...");
+      }
+      else {
+        // Chemical needs more — enter TOPPING_UP
+        toppingUpStart_ms = now;
+        dosingState = DosingState::TOPPING_UP;
+        Serial.print("  [DOSE] TOPPING UP — chem remaining: ");
+        Serial.print((chemCycleTarget_L - chemDispensed_L) * 1000.0f, 1);
+        Serial.println(" mL");
+      }
+    }
+    break;
+  }
+
+  case DosingState::TOPPING_UP: {
+    unsigned long elapsed = now - toppingUpStart_ms;
+
+    // Pump failure during top-up
+    if (isPumpFailure(chemDispensed_L, elapsed + PUMP_GRACE_MS,
+      PUMP_GRACE_MS)) {
+      stopPump();
+      dosingFault = DosingFault::PUMP_FAILURE;
+      dosingState = DosingState::FAULT;
+      Serial.println("  [DOSE] FAULT — pump failure during top-up");
+      break;
+    }
+
+    // Top-up timeout
+    if (isDosingTimeout(elapsed, TOPPING_UP_TIMEOUT_MS)) {
+      stopPump();
+      dosingFault = DosingFault::TIMEOUT;
+      dosingState = DosingState::FAULT;
+      Serial.println("  [DOSE] FAULT — top-up timeout");
+      break;
+    }
+
+    // Chemical target reached
+    if (isChemTargetReached(chemDispensed_L, chemCycleTarget_L)) {
+      stopPump();
       closingFlow_L = 0.0f;
       closingStart_ms = now;
       dosingState = DosingState::CLOSING;
-      Serial.print("  [DOSE] TARGET REACHED — ");
-      Serial.print(waterDispensed_L * 1000.0f, 1);
-      Serial.println(" mL dispensed. Verifying valve closed...");
+      Serial.println("  [DOSE] Chem target reached — verifying valves...");
     }
     break;
   }
@@ -200,31 +313,32 @@ void updateDosingStateMachine() {
   case DosingState::CLOSING: {
     unsigned long elapsed = now - closingStart_ms;
 
-    // Check stuck valve — flow continues after close
+    // Stuck valve check
     if (isStuckOpen(closingFlow_L, STUCK_VALVE_TOL_L)) {
       dosingFault = DosingFault::STUCK_VALVE;
       dosingState = DosingState::FAULT;
-      Serial.println("  [DOSE] FAULT — stuck valve detected");
+      Serial.println("  [DOSE] FAULT — stuck valve");
       break;
     }
 
-    // Verification window elapsed — valve confirmed closed
     if (elapsed >= CLOSING_VERIFY_MS) {
+      // Verify ratio before marking complete
+      ratioOk = isRatioCorrect(waterDispensed_L, chemDispensed_L,
+        DILUTION_RATIO, RATIO_TOLERANCE);
       dosingState = DosingState::COMPLETE;
-      Serial.println("  [DOSE] COMPLETE — valve confirmed closed");
+      Serial.print("  [DOSE] COMPLETE — ratio ");
+      Serial.println(ratioOk ? "OK" : "WARNING: out of tolerance");
     }
     break;
   }
 
   case DosingState::COMPLETE:
-    // Stay in COMPLETE until acknowledged — reset to IDLE
     dosingState = DosingState::IDLE;
     Serial.println("  [DOSE] IDLE — ready for next request");
     break;
 
   case DosingState::FAULT:
-    // Stay in FAULT until manually reset
-    // Phase 4: fault acknowledgement comes via MQTT
+    // Held until manual reset — Phase 4: MQTT acknowledgement
     break;
   }
 }
@@ -250,9 +364,6 @@ float readLoadCellVolume() {
   return massToVolume(mass, CHEM_DENSITY_KG_L);
 }
 
-// ============================================================
-//  LED indicators
-// ============================================================
 void updateLEDs(bool anyFault) {
   digitalWrite(LED_FAULT, anyFault ? HIGH : LOW);
   digitalWrite(LED_OK, !anyFault ? HIGH : LOW);
@@ -263,45 +374,46 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // Water tank
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 
-  // Chemical flow meter
   pinMode(FLOWPULSE_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(FLOWPULSE_PIN),
-    onChemPulse, FALLING);
+    onChemStockPulse, FALLING);
 
-  // Solenoid valve
   pinMode(SOLENOID_PIN, OUTPUT);
-  digitalWrite(SOLENOID_PIN, LOW);  // start closed
+  digitalWrite(SOLENOID_PIN, LOW);
 
-  // Water flow meter
   pinMode(WATER_FLOW_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(WATER_FLOW_PIN),
     onWaterPulse, FALLING);
 
-  // Load cell ADC
-  pinMode(LOADCELL_PIN, INPUT);
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW);
 
-  // LEDs
+  pinMode(CHEM_FLOW_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(CHEM_FLOW_PIN),
+    onCycleChemPulse, FALLING);
+
+  pinMode(LOADCELL_PIN, INPUT);
   pinMode(LED_FAULT, OUTPUT);
   pinMode(LED_OK, OUTPUT);
 
-  // Temporary refill request trigger
   pinMode(REFILL_REQUEST_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(REFILL_REQUEST_PIN), []() { refillRequested = true; }, FALLING);
+  attachInterrupt(digitalPinToInterrupt(REFILL_REQUEST_PIN),
+    []() { refillRequested = true; }, FALLING);
 
   Serial.println("+--------------------------------------------------+");
-  Serial.println("| Hospital Dosing System — Phase 2a                |");
-  Serial.println("| Water tank + Chemical tank + Dosing cycle        |");
+  Serial.println("| Hospital Dosing System — Phase 2b                |");
+  Serial.println("| Simultaneous water + chemical dosing             |");
   Serial.println("+--------------------------------------------------+");
-  Serial.println("| [Tip] HC-SR04 slider  — water level              |");
-  Serial.println("| [Tip] Button GPIO4    — chemical flow pulses     |");
-  Serial.println("| [Tip] Button GPIO8    — water flow pulses        |");
-  Serial.println("| [Tip] Potentiometer   — load cell reading        |");
-  Serial.println("| [Tip] Button GPIO9    — request refill (temp)    |");
+  Serial.println("| [GPIO4 ] btn green  — chem stock pulse           |");
+  Serial.println("| [GPIO8 ] btn blue   — water flow pulse           |");
+  Serial.println("| [GPIO9 ] btn red    — request refill (temp)      |");
+  Serial.println("| [GPIO11] btn yellow — chem flow pulse            |");
+  Serial.println("| [GPIO7 ] LED magenta— solenoid valve             |");
+  Serial.println("| [GPIO10] LED blue   — chemical pump              |");
   Serial.println("+--------------------------------------------------+");
 }
 
@@ -310,8 +422,7 @@ void loop() {
   processPendingPulses();
   updateDosingStateMachine();
 
-  // ── Temporary refill trigger — Phase 2a only ──────────────
-  // Phase 4: replaced by MQTT queue check
+  // ── Temporary refill trigger ──────────────────────────────
   if (refillRequested) {
     refillRequested = false;
     float dist_m = readDistanceMetres();
@@ -337,11 +448,11 @@ void loop() {
     bool chemLow = isChemLow(chemRemaining_L, CHEM_LOW_THRESHOLD_L);
     bool mismatch = isMismatch(chemRemaining_L, lcVol_L, MISMATCH_TOLERANCE_L);
 
-    // ── Fault summary ────────────────────────────────────────
+    // ── Fault summary ─────────────────────────────────────────
     bool anyFault = waterFault || waterLow || chemLow || mismatch
       || (dosingState == DosingState::FAULT);
 
-    // ── Serial dashboard ─────────────────────────────────────
+    // ── Serial dashboard ──────────────────────────────────────
     unsigned long t = millis() / 1000;
     Serial.println();
     Serial.println("+--------------------------------------------------+");
@@ -363,21 +474,23 @@ void loop() {
 
     // Chemical tank
     Serial.print("| [CHEM ] ");
-    Serial.print("flow="); Serial.print(chemRemaining_L, 3); Serial.print("L  ");
-    Serial.print("lc=");   Serial.print(lcVol_L, 3); Serial.print("L  ");
+    Serial.print("stock="); Serial.print(chemRemaining_L, 3); Serial.print("L  ");
+    Serial.print("lc=");    Serial.print(lcVol_L, 3); Serial.print("L  ");
     Serial.print("pulses="); Serial.println(totalChemPulses);
     Serial.print("|         ");
     if (chemLow)  Serial.println("*** CHEM LOW ***");
     else if (mismatch) Serial.println("*** MISMATCH — check for leak/spill ***");
     else               Serial.println("OK");
 
-    // Dosing state
+    // Dosing cycle
     Serial.print("| [DOSE ] ");
     Serial.print("state="); Serial.print(stateToString(dosingState));
-    Serial.print("  dispensed=");
-    Serial.print(waterDispensed_L * 1000.0f, 1); Serial.print("mL");
-    Serial.print("  target=");
-    Serial.print(DISPENSE_TARGET_L * 1000.0f, 0); Serial.println("mL");
+    Serial.print("  W="); Serial.print(waterDispensed_L * 1000.0f, 1); Serial.print("mL");
+    Serial.print("  C="); Serial.print(chemDispensed_L * 1000.0f, 1); Serial.println("mL");
+    Serial.print("|         ");
+    Serial.print("W_target="); Serial.print(DISPENSE_TARGET_L * 1000.0f, 0);
+    Serial.print("mL  C_target=");
+    Serial.print(chemCycleTarget_L * 1000.0f, 1); Serial.println("mL");
     if (dosingFault != DosingFault::NONE) {
       Serial.print("|         FAULT: ");
       Serial.println(faultToString(dosingFault));

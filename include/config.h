@@ -26,6 +26,9 @@
 #define REFILL_REQUEST_PIN  9   // temp: simulates dispensing tank request
                                 // Phase 4: replaced by MQTT subscription
 
+#define PUMP_PIN                20    // chemical pump (LED in simulation)
+#define CHEM_FLOW_PIN           11    // chemical flow meter (button in simulation)
+
 // ── Water tank ───────────────────────────────────────────────
 // Geometry derived from spec: V ≈ 2000L, diameter = 50cm
 // h = V / (pi * r^2) = 2.0 / (pi * 0.25^2) = 10.19m
@@ -53,3 +56,12 @@ constexpr float    STUCK_VALVE_TOL_L = 0.01f;   // 10mL flow after close = stuck
 constexpr unsigned long DOSING_TIMEOUT_MS = 30000UL; // 30s max for one dispense
 constexpr unsigned long BLOCKED_GRACE_MS = 5000UL;  // 5s grace to detect flow
 constexpr unsigned long CLOSING_VERIFY_MS = 3000UL;  // 3s to verify flow stopped
+
+// ── Chemical pump ─────────────────────────────────────────────
+
+// 1:50 dilution — 1 part chemical per 50 parts water
+// ratio = 1/51 ≈ 0.01961 (chemical fraction of total volume)
+constexpr float DILUTION_RATIO = 1.0f / 51.0f;
+constexpr float RATIO_TOLERANCE = 0.10f;   // 10% of target ratio (relative)
+constexpr unsigned long PUMP_GRACE_MS = 3000UL; // 3s grace to detect pump flow
+constexpr unsigned long TOPPING_UP_TIMEOUT_MS = 10000UL; // 10s max for top-up

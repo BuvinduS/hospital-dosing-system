@@ -33,6 +33,7 @@ const char* faultToString(DosingFault fault) {
     case DosingFault::DRY_TANK:      return "DRY TANK";
     case DosingFault::BLOCKED_VALVE: return "BLOCKED VALVE";
     case DosingFault::STUCK_VALVE:   return "STUCK VALVE";
+    case DosingFault::PUMP_FAILURE:  return "PUMP FAILURE";
     case DosingFault::TIMEOUT:       return "TIMEOUT";
     default:                         return "UNKNOWN";
     }
@@ -42,6 +43,7 @@ const char* stateToString(DosingState state) {
     switch (state) {
     case DosingState::IDLE:     return "IDLE";
     case DosingState::DOSING:   return "DOSING";
+    case DosingState::TOPPING_UP: return "TOPPING_UP";
     case DosingState::CLOSING:  return "CLOSING";
     case DosingState::COMPLETE: return "COMPLETE";
     case DosingState::FAULT:    return "FAULT";

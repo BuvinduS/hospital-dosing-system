@@ -9,6 +9,7 @@
 enum class DosingState {
     IDLE,
     DOSING,
+    TOPPING_UP,  // water done but chem still needs more — topping up
     CLOSING,    // valve just closed — verifying flow has stopped
     COMPLETE,
     FAULT
@@ -20,6 +21,7 @@ enum class DosingFault {
     DRY_TANK,         // water level too low before dosing started
     BLOCKED_VALVE,    // no flow detected within grace period after open
     STUCK_VALVE,      // flow continues after close command
+    PUMP_FAILURE,
     TIMEOUT           // target not reached within allowed time
 };
 
