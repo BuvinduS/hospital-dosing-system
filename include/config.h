@@ -26,7 +26,7 @@
 #define REFILL_REQUEST_PIN  9   // temp: simulates dispensing tank request
                                 // Phase 4: replaced by MQTT subscription
 
-#define PUMP_PIN                20    // chemical pump (LED in simulation)
+#define PUMP_PIN                21    // chemical pump (LED in simulation)
 #define CHEM_FLOW_PIN           11    // chemical flow meter (button in simulation)
 
 // ── Water tank ───────────────────────────────────────────────

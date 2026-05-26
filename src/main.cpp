@@ -43,6 +43,8 @@ static unsigned long dosingStart_ms = 0;
 static unsigned long toppingUpStart_ms = 0;
 static unsigned long closingStart_ms = 0;
 static bool ratioOk = false;
+static float chemCycleActualTarget_L = 0.0f;
+static bool chemPumpStopped = false;  // true when pump stopped mid-cycle
 
 // ── Temporary refill trigger ──────────────────────────────────
 // Phase 4: replaced by MQTT queue
@@ -182,6 +184,7 @@ void processPendingPulses() {
 //  Dosing state machine
 // ============================================================
 void startDosing(float current_level_m) {
+  chemPumpStopped = false;
   if (dosingState != DosingState::IDLE) return;
 
   if (!isSufficientWater(current_level_m, TANK_MIN_LEVEL_M)) {
@@ -193,6 +196,7 @@ void startDosing(float current_level_m) {
 
   // Compute chemical target for this cycle
   chemCycleTarget_L = chemTargetVolume(DISPENSE_TARGET_L, DILUTION_RATIO);
+  chemCycleActualTarget_L = chemCycleTarget_L;  // for reporting at end of cycle
   waterDispensed_L = 0.0f;
   chemDispensed_L = 0.0f;
   closingFlow_L = 0.0f;
@@ -222,7 +226,7 @@ void updateDosingStateMachine() {
   case DosingState::DOSING: {
     unsigned long elapsed = now - dosingStart_ms;
 
-    // Blocked valve check — no water flow after grace period
+    // Blocked valve check
     if (isBlockedValve(waterDispensed_L, elapsed, BLOCKED_GRACE_MS)) {
       closeSolenoid();
       stopPump();
@@ -232,7 +236,7 @@ void updateDosingStateMachine() {
       break;
     }
 
-    // Pump failure check — no chemical flow after grace period
+    // Pump failure check
     if (isPumpFailure(chemDispensed_L, elapsed, PUMP_GRACE_MS)) {
       closeSolenoid();
       stopPump();
@@ -252,21 +256,27 @@ void updateDosingStateMachine() {
       break;
     }
 
-    // Water target reached — close solenoid, check if chem done too
+    // ── Chemical finished before water ────────────────────────
+    if (!chemPumpStopped &&
+      isChemTargetReached(chemDispensed_L, chemCycleTarget_L)) {
+      stopPump();
+      chemPumpStopped = true;  // ← prevents re-entry
+      Serial.println("  [DOSE] Chem target reached — pump stopped, water continuing");
+    }
+
+    // ── Water finished ────────────────────────────────────────
     if (isTargetReached(waterDispensed_L, DISPENSE_TARGET_L)) {
       closeSolenoid();
       Serial.println("  [DOSE] Water target reached");
 
-      if (isChemTargetReached(chemDispensed_L, chemCycleTarget_L)) {
-        // Both done simultaneously — skip TOPPING_UP
-        stopPump();
+      if (chemPumpStopped ||
+        isChemTargetReached(chemDispensed_L, chemCycleTarget_L)) {
         closingFlow_L = 0.0f;
         closingStart_ms = now;
         dosingState = DosingState::CLOSING;
-        Serial.println("  [DOSE] Chem also complete — verifying valves...");
+        Serial.println("  [DOSE] Both complete — verifying valves...");
       }
       else {
-        // Chemical needs more — enter TOPPING_UP
         toppingUpStart_ms = now;
         dosingState = DosingState::TOPPING_UP;
         Serial.print("  [DOSE] TOPPING UP — chem remaining: ");
@@ -489,8 +499,9 @@ void loop() {
     Serial.print("  C="); Serial.print(chemDispensed_L * 1000.0f, 1); Serial.println("mL");
     Serial.print("|         ");
     Serial.print("W_target="); Serial.print(DISPENSE_TARGET_L * 1000.0f, 0);
-    Serial.print("mL  C_target=");
-    Serial.print(chemCycleTarget_L * 1000.0f, 1); Serial.println("mL");
+    Serial.print("  C_target=");
+    Serial.print(chemCycleActualTarget_L * 1000.0f, 1);
+    Serial.println("mL");
     if (dosingFault != DosingFault::NONE) {
       Serial.print("|         FAULT: ");
       Serial.println(faultToString(dosingFault));
