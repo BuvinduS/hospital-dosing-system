@@ -33,6 +33,17 @@
 #define TANK1_BTN_PIN   12    // Tank 1 low level sensor (button in simulation)
 #define TANK2_BTN_PIN   13    // Tank 2 low level sensor (button in simulation)
 
+// ── Alarm and display ─────────────────────────────────────────
+#define RGB_RED_PIN     15    // RGB LED red channel (existing)
+#define RGB_GREEN_PIN   16    // RGB LED green channel (existing)
+#define RGB_BLUE_PIN    48    // RGB LED blue channel (new)
+#define BUZZER_PIN      47    // Passive buzzer
+
+// I2C for OLED
+#define OLED_SDA_PIN    1
+#define OLED_SCL_PIN    2
+
+
 // ── Manual reset ──────────────────────────────────────────────
 #define FAULT_RESET_PIN  19   // manual fault reset (temp — Phase 4: MQTT command)
 
@@ -77,3 +88,9 @@ constexpr unsigned long TOPPING_UP_TIMEOUT_MS = 10000UL; // 10s max for top-up
 // ── Despensing Tank IDs ───────────────────────────────────────────── 
 constexpr uint8_t TANK1_ID = 1;
 constexpr uint8_t TANK2_ID = 2;
+
+
+// ── Alarm timing ───────────────────────────────────────────── 
+constexpr unsigned long WARN_BEEP_INTERVAL_MS = 3000UL; // warning beep every 3s
+constexpr unsigned long CRIT_BEEP_INTERVAL_MS = 300UL;  // critical beep every 300ms
+constexpr unsigned long BEEP_DURATION_MS = 100UL;  // beep on-time
