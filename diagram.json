@@ -73,13 +73,6 @@
     },
     {
       "type": "wokwi-pushbutton",
-      "id": "btn_req_refill",
-      "top": 303.8,
-      "left": -374.4,
-      "attrs": { "color": "red", "xray": "1" }
-    },
-    {
-      "type": "wokwi-pushbutton",
       "id": "btn_refill",
       "top": 198.2,
       "left": -374.4,
@@ -113,10 +106,24 @@
       "top": 111.8,
       "left": -374.4,
       "attrs": { "color": "yellow", "xray": "1" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_tank1",
+      "top": 323,
+      "left": 211.2,
+      "attrs": { "color": "white", "xray": "1" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_tank2",
+      "top": 390.2,
+      "left": 211.2,
+      "attrs": { "color": "white", "xray": "1" }
     }
   ],
   "connections": [
-    [ "ultrasonic:TRIG", "esp:5", "purple", [ "v230.4", "h-269.2" ] ],
+    [ "ultrasonic:TRIG", "esp:5", "purple", [ "v192", "h-403.55" ] ],
     [ "ultrasonic:ECHO", "esp:17", "green", [ "h-0.8", "v249.6" ] ],
     [ "esp:3V3.1", "bb1:tp.25", "red", [ "v0" ] ],
     [ "esp:GND.2", "bb1:tn.24", "black", [ "v0" ] ],
@@ -134,11 +141,23 @@
     [ "esp:7", "bb1:7b.f", "limegreen", [ "h-67.25", "v-220.8", "h0", "v-96" ] ],
     [ "bb1:6t.a", "bb1:tn.5", "black", [ "h0" ] ],
     [ "btn_refill:1.l", "bb1:tn.18", "black", [ "h-28.8", "v-299.2" ] ],
-    [ "btn_req_refill:1.l", "bb1:tn.14", "black", [ "h-48", "v-451.2" ] ],
     [ "led1:A", "bb1:3b.j", "", [ "$bb" ] ],
     [ "led1:C", "bb1:2b.j", "", [ "$bb" ] ],
     [ "esp:21", "bb1:3b.f", "cyan", [ "h48", "v-153.6" ] ],
     [ "bb1:2t.a", "bb1:tn.1", "black", [ "h0" ] ],
+    [
+      "esp:8",
+      "btn_refill:2.l",
+      "green",
+      [ "h-28.85", "v124.8", "h-364.8", "v0", "h-9.6", "v-28.8" ]
+    ],
+    [ "btn_chem_flow:1.l", "bb1:tn.12", "black", [ "h-9.6", "v-278.4" ] ],
+    [ "esp:11", "btn_chem_flow:2.l", "yellow", [ "h-393.65", "v-38.4" ] ],
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "bb1:tn.14", "bb1:bn.14", "black", [ "h0" ] ],
+    [ "btn_tank1:1.l", "esp:12", "white", [ "h-307.2", "v-144" ] ],
+    [ "btn_tank1:2.l", "bb1:bn.22", "black", [ "h-672", "v-393.4" ] ],
     [ "led-FAULT:A", "bb1:12b.j", "", [ "$bb" ] ],
     [ "led-FAULT:C", "bb1:11b.j", "", [ "$bb" ] ],
     [ "led-OK:A", "bb1:20b.j", "", [ "$bb" ] ],
@@ -155,17 +174,8 @@
     [ "led_pump:C", "bb1:2b.j", "", [ "$bb" ] ],
     [ "r4:1", "bb1:2b.f", "", [ "$bb" ] ],
     [ "r4:2", "bb1:2t.b", "", [ "$bb" ] ],
-    [
-      "esp:8",
-      "btn_refill:2.l",
-      "green",
-      [ "h-28.85", "v124.8", "h-364.8", "v0", "h-9.6", "v-28.8" ]
-    ],
-    [ "esp:9", "btn_req_refill:2.l", "green", [ "h-19.25", "v201.6", "h-384", "v-28.8" ] ],
-    [ "btn_chem_flow:1.l", "bb1:tn.12", "black", [ "h-9.6", "v-278.4" ] ],
-    [ "esp:11", "btn_chem_flow:2.l", "yellow", [ "h-393.65", "v-38.4" ] ],
-    [ "esp:TX", "$serialMonitor:RX", "", [] ],
-    [ "esp:RX", "$serialMonitor:TX", "", [] ]
+    [ "btn_tank2:1.l", "esp:13", "white", [ "h-268.8", "v-201.6" ] ],
+    [ "btn_tank2:2.l", "bb1:bn.24", "black", [ "h-700.8", "v-431.8" ] ]
   ],
   "dependencies": {}
 }

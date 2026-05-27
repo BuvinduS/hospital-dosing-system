@@ -53,6 +53,7 @@ constexpr int   ADC_MAX = 4095;     // 12-bit ADC maximum value
 // ── Timing ────────────────────────────────────────────────────
 constexpr unsigned long REPORT_MS = 1000;    // serial report interval (ms)
 constexpr unsigned long DEBOUNCE_MS = 50;      // ISR debounce window (ms)
+static constexpr unsigned long TANK_DEBOUNCE_MS = 500UL;
 
 // ── Solenoid valve and water dosing ──────────────────────────
 constexpr float    DISPENSE_TARGET_L = 0.60f;   // 600mL per refill cycle

@@ -49,7 +49,8 @@ static bool chemPumpStopped = false;  // true when pump stopped mid-cycle
 
 // ── Run time state — Refill queue ──────────────────────────────────────────────
 static RefillQueue refillQueue;
-static uint8_t     currentTankId = 0;  // tank currently being served, 0 = none
+static uint8_t currentTankId = 0;  // tank currently being dosed 0 = none
+static uint8_t lastCompletedId = 0;  // tank that just finished — pending notification
 
 // ── Tank node simulation ──────────────────────────────────────
 // In production: separate ESP32 per tank, communicates via MQTT
@@ -64,6 +65,8 @@ static unsigned long lastReport = 0;
 static volatile unsigned long lastChemDebounce = 0;
 static volatile unsigned long lastWaterDebounce = 0;
 static volatile unsigned long lastCycleChemDebounce = 0;
+static volatile unsigned long lastTank1Debounce = 0;
+static volatile unsigned long lastTank2Debounce = 0;
 
 // ── Interrupt pulse counters ──────────────────────────────────
 volatile long pendingChemPulses = 0;  // chemical tank stock tracking
@@ -105,11 +108,19 @@ void IRAM_ATTR onCycleChemPulse() {
 // In production: MQTT publish from tank node triggers this
 // In simulation: button press triggers directly
 void IRAM_ATTR onTank1Request() {
-  tank1Requested = true;
+  unsigned long now = millis();
+  if (now - lastTank1Debounce >= TANK_DEBOUNCE_MS) {
+    tank1Requested = true;
+    lastTank1Debounce = now;
+  }
 }
 
 void IRAM_ATTR onTank2Request() {
-  tank2Requested = true;
+  unsigned long now = millis();
+  if (now - lastTank2Debounce >= TANK_DEBOUNCE_MS) {
+    tank2Requested = true;
+    lastTank2Debounce = now;
+  }
 }
 
 // ============================================================
@@ -361,6 +372,7 @@ void updateDosingStateMachine() {
   }
 
   case DosingState::COMPLETE:
+    lastCompletedId = currentTankId;  // ← record who just finished
     dosingState = DosingState::IDLE;
     Serial.println("  [DOSE] IDLE — ready for next request");
     break;
@@ -457,32 +469,36 @@ void setup() {
 //  In simulation: ISR flags polled here, queue updated directly
 // ============================================================
 void processTankRequests() {
-  // ── Tank 1 request ────────────────────────────────────────
   if (tank1Requested) {
     tank1Requested = false;
-    if (enqueue(refillQueue, TANK1_ID)) {
-      Serial.print("  [TANK 1] Low level detected — queued. ");
-      Serial.print("Queue size: "); Serial.println(queueSize(refillQueue));
+    if (currentTankId == TANK1_ID) {
+      Serial.println("  [TANK 1] Already being served — request ignored");
+    }
+    else if (enqueue(refillQueue, TANK1_ID)) {
+      Serial.print("  [TANK 1] Low level detected — queued. Queue size: ");
+      Serial.println(queueSize(refillQueue));
     }
     else if (queueContains(refillQueue, TANK1_ID)) {
       Serial.println("  [TANK 1] Already in queue — request ignored");
     }
-    else if (queueIsFull(refillQueue)) {
+    else {
       Serial.println("  [TANK 1] Queue full — request rejected");
     }
   }
 
-  // ── Tank 2 request ────────────────────────────────────────
   if (tank2Requested) {
     tank2Requested = false;
-    if (enqueue(refillQueue, TANK2_ID)) {
-      Serial.print("  [TANK 2] Low level detected — queued. ");
-      Serial.print("Queue size: "); Serial.println(queueSize(refillQueue));
+    if (currentTankId == TANK2_ID) {
+      Serial.println("  [TANK 2] Already being served — request ignored");
+    }
+    else if (enqueue(refillQueue, TANK2_ID)) {
+      Serial.print("  [TANK 2] Low level detected — queued. Queue size: ");
+      Serial.println(queueSize(refillQueue));
     }
     else if (queueContains(refillQueue, TANK2_ID)) {
       Serial.println("  [TANK 2] Already in queue — request ignored");
     }
-    else if (queueIsFull(refillQueue)) {
+    else {
       Serial.println("  [TANK 2] Queue full — request rejected");
     }
   }
@@ -492,11 +508,22 @@ void processTankRequests() {
 //  Queue dispatch — serves next tank when system is idle
 // ============================================================
 void processRefillQueue() {
-  // Only dispatch when dosing system is idle and queue has work
+  // Only runs when dosing system is idle
   if (dosingState != DosingState::IDLE) return;
-  if (queueIsEmpty(refillQueue))        return;
 
-  // Dequeue next tank
+  // Step 1 — handle completion notification first
+  if (lastCompletedId != 0) {
+    Serial.print("  [QUEUE] Tank ");
+    Serial.print(lastCompletedId);
+    Serial.println(" refill complete — notifying node");
+    lastCompletedId = 0;
+    return;  // wait one full loop before dispatching next
+  }
+
+  // Step 2 — nothing to dispatch
+  if (queueIsEmpty(refillQueue)) return;
+
+  // Step 3 — dispatch next tank
   currentTankId = dequeue(refillQueue);
 
   Serial.print("  [QUEUE] Serving tank ");
@@ -505,7 +532,6 @@ void processRefillQueue() {
   Serial.print(queueSize(refillQueue));
   Serial.println(" remaining in queue");
 
-  // Trigger dosing cycle
   float dist_m = readDistanceMetres();
   float height_m = (dist_m < 0.0f) ? 0.0f :
     distanceToHeight(dist_m, TANK_HEIGHT_M);
@@ -518,16 +544,6 @@ void loop() {
   updateDosingStateMachine();
   processTankRequests();
   processRefillQueue();
-
-  // Notify when tank refill completes
-  // In production: publish MQTT refill/complete/{id}
-  // In simulation: print to serial
-  if (dosingState == DosingState::IDLE && currentTankId != 0) {
-    Serial.print("  [QUEUE] Tank ");
-    Serial.print(currentTankId);
-    Serial.println(" refill complete — notifying node");
-    currentTankId = 0;  // clear served tank
-  }
 
   if (millis() - lastReport >= REPORT_MS) {
     lastReport = millis();
@@ -599,8 +615,15 @@ void loop() {
     Serial.print("| [QUEUE] ");
     Serial.print("size="); Serial.print(queueSize(refillQueue));
     Serial.print("  serving=");
-    if (currentTankId == 0) Serial.println("none");
-    else { Serial.print("Tank "); Serial.println(currentTankId); }
+    if (dosingState == DosingState::IDLE && queueIsEmpty(refillQueue)) {
+      Serial.println("none");
+    }
+    else if (currentTankId == 0) {
+      Serial.println("none");
+    }
+    else {
+      Serial.print("Tank "); Serial.println(currentTankId);
+    }
 
     // Status
     Serial.println("+--------------------------------------------------+");
