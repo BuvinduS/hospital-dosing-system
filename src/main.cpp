@@ -27,6 +27,7 @@
 #include "solenoid.h"
 #include "pump.h"
 #include "config.h"
+#include "refill_queue.h"
 
 // ── Runtime state — tanks ─────────────────────────────────────
 static float chemRemaining_L = CHEM_INITIAL_VOL_L;
@@ -46,9 +47,15 @@ static bool ratioOk = false;
 static float chemCycleActualTarget_L = 0.0f;
 static bool chemPumpStopped = false;  // true when pump stopped mid-cycle
 
-// ── Temporary refill trigger ──────────────────────────────────
-// Phase 4: replaced by MQTT queue
-static volatile bool refillRequested = false;
+// ── Run time state — Refill queue ──────────────────────────────────────────────
+static RefillQueue refillQueue;
+static uint8_t     currentTankId = 0;  // tank currently being served, 0 = none
+
+// ── Tank node simulation ──────────────────────────────────────
+// In production: separate ESP32 per tank, communicates via MQTT
+// In simulation: buttons on same ESP32, calls handler directly
+static volatile bool tank1Requested = false;
+static volatile bool tank2Requested = false;
 
 // ── Report timing ─────────────────────────────────────────────
 static unsigned long lastReport = 0;
@@ -92,6 +99,17 @@ void IRAM_ATTR onCycleChemPulse() {
     pendingCycleChemPulses++;
     lastCycleChemDebounce = now;
   }
+}
+
+// Tank node simulation ISRs
+// In production: MQTT publish from tank node triggers this
+// In simulation: button press triggers directly
+void IRAM_ATTR onTank1Request() {
+  tank1Requested = true;
+}
+
+void IRAM_ATTR onTank2Request() {
+  tank2Requested = true;
 }
 
 // ============================================================
@@ -410,9 +428,14 @@ void setup() {
   pinMode(LED_FAULT, OUTPUT);
   pinMode(LED_OK, OUTPUT);
 
-  pinMode(REFILL_REQUEST_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(REFILL_REQUEST_PIN),
-    []() { refillRequested = true; }, FALLING);
+  // ── Tank node buttons ─────────────────────────────────────────
+  pinMode(TANK1_BTN_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TANK1_BTN_PIN), onTank1Request, FALLING);
+
+  pinMode(TANK2_BTN_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(TANK2_BTN_PIN), onTank2Request, FALLING);
+
+  queueInit(refillQueue);
 
   Serial.println("+--------------------------------------------------+");
   Serial.println("| Hospital Dosing System — Phase 2b                |");
@@ -420,25 +443,90 @@ void setup() {
   Serial.println("+--------------------------------------------------+");
   Serial.println("| [GPIO4 ] btn green  — chem stock pulse           |");
   Serial.println("| [GPIO8 ] btn blue   — water flow pulse           |");
-  Serial.println("| [GPIO9 ] btn red    — request refill (temp)      |");
   Serial.println("| [GPIO11] btn yellow — chem flow pulse            |");
   Serial.println("| [GPIO7 ] LED magenta— solenoid valve             |");
-  Serial.println("| [GPIO10] LED blue   — chemical pump              |");
+  Serial.println("| [GPIO21] LED blue   — chemical pump              |");
+  Serial.println("| [GPIO12] btn white  — Tank 1 low level sensor    |");
+  Serial.println("| [GPIO13] btn white  — Tank 2 low level sensor    |");
   Serial.println("+--------------------------------------------------+");
+}
+
+// ============================================================
+//  Tank node simulation
+//  In production: onMqttMessage() handles incoming MQTT publishes
+//  In simulation: ISR flags polled here, queue updated directly
+// ============================================================
+void processTankRequests() {
+  // ── Tank 1 request ────────────────────────────────────────
+  if (tank1Requested) {
+    tank1Requested = false;
+    if (enqueue(refillQueue, TANK1_ID)) {
+      Serial.print("  [TANK 1] Low level detected — queued. ");
+      Serial.print("Queue size: "); Serial.println(queueSize(refillQueue));
+    }
+    else if (queueContains(refillQueue, TANK1_ID)) {
+      Serial.println("  [TANK 1] Already in queue — request ignored");
+    }
+    else if (queueIsFull(refillQueue)) {
+      Serial.println("  [TANK 1] Queue full — request rejected");
+    }
+  }
+
+  // ── Tank 2 request ────────────────────────────────────────
+  if (tank2Requested) {
+    tank2Requested = false;
+    if (enqueue(refillQueue, TANK2_ID)) {
+      Serial.print("  [TANK 2] Low level detected — queued. ");
+      Serial.print("Queue size: "); Serial.println(queueSize(refillQueue));
+    }
+    else if (queueContains(refillQueue, TANK2_ID)) {
+      Serial.println("  [TANK 2] Already in queue — request ignored");
+    }
+    else if (queueIsFull(refillQueue)) {
+      Serial.println("  [TANK 2] Queue full — request rejected");
+    }
+  }
+}
+
+// ============================================================
+//  Queue dispatch — serves next tank when system is idle
+// ============================================================
+void processRefillQueue() {
+  // Only dispatch when dosing system is idle and queue has work
+  if (dosingState != DosingState::IDLE) return;
+  if (queueIsEmpty(refillQueue))        return;
+
+  // Dequeue next tank
+  currentTankId = dequeue(refillQueue);
+
+  Serial.print("  [QUEUE] Serving tank ");
+  Serial.print(currentTankId);
+  Serial.print(" — ");
+  Serial.print(queueSize(refillQueue));
+  Serial.println(" remaining in queue");
+
+  // Trigger dosing cycle
+  float dist_m = readDistanceMetres();
+  float height_m = (dist_m < 0.0f) ? 0.0f :
+    distanceToHeight(dist_m, TANK_HEIGHT_M);
+  startDosing(height_m);
 }
 
 // ============================================================
 void loop() {
   processPendingPulses();
   updateDosingStateMachine();
+  processTankRequests();
+  processRefillQueue();
 
-  // ── Temporary refill trigger ──────────────────────────────
-  if (refillRequested) {
-    refillRequested = false;
-    float dist_m = readDistanceMetres();
-    float height_m = (dist_m < 0.0f) ? 0.0f :
-      distanceToHeight(dist_m, TANK_HEIGHT_M);
-    startDosing(height_m);
+  // Notify when tank refill completes
+  // In production: publish MQTT refill/complete/{id}
+  // In simulation: print to serial
+  if (dosingState == DosingState::IDLE && currentTankId != 0) {
+    Serial.print("  [QUEUE] Tank ");
+    Serial.print(currentTankId);
+    Serial.println(" refill complete — notifying node");
+    currentTankId = 0;  // clear served tank
   }
 
   if (millis() - lastReport >= REPORT_MS) {
@@ -506,6 +594,13 @@ void loop() {
       Serial.print("|         FAULT: ");
       Serial.println(faultToString(dosingFault));
     }
+
+    // Queue status
+    Serial.print("| [QUEUE] ");
+    Serial.print("size="); Serial.print(queueSize(refillQueue));
+    Serial.print("  serving=");
+    if (currentTankId == 0) Serial.println("none");
+    else { Serial.print("Tank "); Serial.println(currentTankId); }
 
     // Status
     Serial.println("+--------------------------------------------------+");

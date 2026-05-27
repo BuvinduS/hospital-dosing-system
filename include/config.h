@@ -29,6 +29,10 @@
 #define PUMP_PIN                21    // chemical pump (LED in simulation)
 #define CHEM_FLOW_PIN           11    // chemical flow meter (button in simulation)
 
+// ── Dispensing tank nodes (simulation) ───────────────────────
+#define TANK1_BTN_PIN   12    // Tank 1 low level sensor (button in simulation)
+#define TANK2_BTN_PIN   13    // Tank 2 low level sensor (button in simulation)
+
 // ── Water tank ───────────────────────────────────────────────
 // Geometry derived from spec: V ≈ 2000L, diameter = 50cm
 // h = V / (pi * r^2) = 2.0 / (pi * 0.25^2) = 10.19m
@@ -65,3 +69,7 @@ constexpr float DILUTION_RATIO = 1.0f / 51.0f;
 constexpr float RATIO_TOLERANCE = 0.10f;   // 10% of target ratio (relative)
 constexpr unsigned long PUMP_GRACE_MS = 3000UL; // 3s grace to detect pump flow
 constexpr unsigned long TOPPING_UP_TIMEOUT_MS = 10000UL; // 10s max for top-up
+
+// ── Despensing Tank IDs ───────────────────────────────────────────── 
+constexpr uint8_t TANK1_ID = 1;
+constexpr uint8_t TANK2_ID = 2;
