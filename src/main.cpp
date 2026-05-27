@@ -73,6 +73,9 @@ volatile long pendingChemPulses = 0;  // chemical tank stock tracking
 volatile long pendingWaterPulses = 0;  // water dosing cycle
 volatile long pendingCycleChemPulses = 0;  // chemical dosing cycle
 
+// ── Manual Reset ──────────────────────────────────
+static volatile bool faultResetRequested = false;
+
 // ============================================================
 //  ISRs
 // ============================================================
@@ -121,6 +124,10 @@ void IRAM_ATTR onTank2Request() {
     tank2Requested = true;
     lastTank2Debounce = now;
   }
+}
+
+void IRAM_ATTR onFaultReset() {
+  faultResetRequested = true;
 }
 
 // ============================================================
@@ -447,6 +454,10 @@ void setup() {
   pinMode(TANK2_BTN_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(TANK2_BTN_PIN), onTank2Request, FALLING);
 
+  // ── Manual reset button ──────────────────────────────────────
+  pinMode(FAULT_RESET_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(FAULT_RESET_PIN), onFaultReset, FALLING);
+
   queueInit(refillQueue);
 
   Serial.println("+--------------------------------------------------+");
@@ -542,6 +553,20 @@ void processRefillQueue() {
 void loop() {
   processPendingPulses();
   updateDosingStateMachine();
+
+  if (faultResetRequested) {
+    faultResetRequested = false;
+    if (dosingState == DosingState::FAULT) {
+      dosingState = DosingState::IDLE;
+      dosingFault = DosingFault::NONE;
+      currentTankId = 0;
+      Serial.println("  [FAULT] Reset by operator — system IDLE");
+    }
+    else {
+      Serial.println("  [RESET] No active fault — ignored");
+    }
+  }
+
   processTankRequests();
   processRefillQueue();
 

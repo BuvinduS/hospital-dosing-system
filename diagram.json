@@ -120,6 +120,13 @@
       "top": 390.2,
       "left": 211.2,
       "attrs": { "color": "white", "xray": "1" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_fault_reset",
+      "top": 217.4,
+      "left": 432,
+      "attrs": { "color": "red", "xray": "1" }
     }
   ],
   "connections": [
@@ -175,7 +182,9 @@
     [ "r4:1", "bb1:2b.f", "", [ "$bb" ] ],
     [ "r4:2", "bb1:2t.b", "", [ "$bb" ] ],
     [ "btn_tank2:1.l", "esp:13", "white", [ "h-268.8", "v-201.6" ] ],
-    [ "btn_tank2:2.l", "bb1:bn.24", "black", [ "h-700.8", "v-431.8" ] ]
+    [ "btn_tank2:2.l", "bb1:bn.24", "black", [ "h-700.8", "v-431.8" ] ],
+    [ "btn_fault_reset:1.l", "esp:19", "red", [ "h-28.8", "v-19.2" ] ],
+    [ "esp:GND.4", "btn_fault_reset:2.l", "black", [ "h278.4", "v19.2" ] ]
   ],
   "dependencies": {}
 }

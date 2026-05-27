@@ -33,6 +33,9 @@
 #define TANK1_BTN_PIN   12    // Tank 1 low level sensor (button in simulation)
 #define TANK2_BTN_PIN   13    // Tank 2 low level sensor (button in simulation)
 
+// ── Manual reset ──────────────────────────────────────────────
+#define FAULT_RESET_PIN  19   // manual fault reset (temp — Phase 4: MQTT command)
+
 // ── Water tank ───────────────────────────────────────────────
 // Geometry derived from spec: V ≈ 2000L, diameter = 50cm
 // h = V / (pi * r^2) = 2.0 / (pi * 0.25^2) = 10.19m
