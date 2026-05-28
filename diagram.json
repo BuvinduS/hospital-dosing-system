@@ -35,36 +35,6 @@
     },
     {
       "type": "wokwi-led",
-      "id": "led-FAULT",
-      "top": -212.4,
-      "left": -233.4,
-      "rotate": 90,
-      "attrs": { "color": "red" }
-    },
-    {
-      "type": "wokwi-led",
-      "id": "led-OK",
-      "top": -135.6,
-      "left": -233.4,
-      "rotate": 90,
-      "attrs": { "color": "limegreen" }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "r1",
-      "top": -197.65,
-      "left": -192,
-      "attrs": { "value": "220" }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "r2",
-      "top": -120.85,
-      "left": -192,
-      "attrs": { "value": "220" }
-    },
-    {
-      "type": "wokwi-led",
       "id": "led_solenoid",
       "top": -260.4,
       "left": -233.4,
@@ -127,6 +97,28 @@
       "top": 217.4,
       "left": 432,
       "attrs": { "color": "red", "xray": "1" }
+    },
+    {
+      "type": "wokwi-rgb-led",
+      "id": "rgb1",
+      "top": -81.6,
+      "left": -234.3,
+      "rotate": 90,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": -458.4,
+      "left": 136.2,
+      "attrs": { "volume": "0.1" }
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled1",
+      "top": -457.66,
+      "left": -47.77,
+      "attrs": { "i2cAddress": "0x3c" }
     }
   ],
   "connections": [
@@ -139,19 +131,14 @@
     [ "pot1:VCC", "bb1:tp.19", "red", [ "v0" ] ],
     [ "pot1:GND", "bb1:tn.19", "black", [ "v86.4", "h-259.2" ] ],
     [ "pot1:SIG", "esp:6", "purple", [ "v48", "h-211.6", "v172.8" ] ],
-    [ "btn_flowmeter:1.l", "bb1:tn.25", "black", [ "h-22.2", "v-60.4", "h76.8" ] ],
+    [ "btn_flowmeter:1.l", "bb1:tn.25", "black", [ "h-9.6", "v-48", "h67.1" ] ],
     [ "btn_flowmeter:2.l", "esp:4", "green", [ "h-3", "v16.6", "h105.6", "v-76.8" ] ],
-    [ "esp:15", "bb1:12b.f", "red", [ "h-48.05", "v48", "h-172.8", "v-192", "h28.8", "v-134.4" ] ],
-    [ "esp:16", "bb1:20b.f", "red", [ "h-38.45", "v48", "h-192", "v-124.8", "h28.8" ] ],
-    [ "bb1:tn.16", "bb1:19t.a", "black", [ "h0" ] ],
-    [ "bb1:11t.a", "bb1:tn.9", "black", [ "h0" ] ],
     [ "esp:7", "bb1:7b.f", "limegreen", [ "h-67.25", "v-220.8", "h0", "v-96" ] ],
     [ "bb1:6t.a", "bb1:tn.5", "black", [ "h0" ] ],
     [ "btn_refill:1.l", "bb1:tn.18", "black", [ "h-28.8", "v-299.2" ] ],
     [ "led1:A", "bb1:3b.j", "", [ "$bb" ] ],
     [ "led1:C", "bb1:2b.j", "", [ "$bb" ] ],
     [ "esp:21", "bb1:3b.f", "cyan", [ "h48", "v-153.6" ] ],
-    [ "bb1:2t.a", "bb1:tn.1", "black", [ "h0" ] ],
     [
       "esp:8",
       "btn_refill:2.l",
@@ -165,14 +152,11 @@
     [ "bb1:tn.14", "bb1:bn.14", "black", [ "h0" ] ],
     [ "btn_tank1:1.l", "esp:12", "white", [ "h-307.2", "v-144" ] ],
     [ "btn_tank1:2.l", "bb1:bn.22", "black", [ "h-672", "v-393.4" ] ],
-    [ "led-FAULT:A", "bb1:12b.j", "", [ "$bb" ] ],
-    [ "led-FAULT:C", "bb1:11b.j", "", [ "$bb" ] ],
-    [ "led-OK:A", "bb1:20b.j", "", [ "$bb" ] ],
-    [ "led-OK:C", "bb1:19b.j", "", [ "$bb" ] ],
-    [ "r1:1", "bb1:11b.f", "", [ "$bb" ] ],
-    [ "r1:2", "bb1:11t.b", "", [ "$bb" ] ],
-    [ "r2:1", "bb1:19b.f", "", [ "$bb" ] ],
-    [ "r2:2", "bb1:19t.b", "", [ "$bb" ] ],
+    [ "btn_tank2:1.l", "esp:13", "white", [ "h-268.8", "v-201.6" ] ],
+    [ "btn_tank2:2.l", "bb1:bn.24", "black", [ "h-700.8", "v-431.8" ] ],
+    [ "btn_fault_reset:1.l", "esp:19", "red", [ "h-28.8", "v-19.2" ] ],
+    [ "esp:GND.4", "btn_fault_reset:2.l", "black", [ "h278.4", "v19.2" ] ],
+    [ "esp:15", "bb1:25b.f", "red", [ "h-48.05", "v28.8", "h-144", "v-182.4" ] ],
     [ "led_solenoid:A", "bb1:7b.j", "", [ "$bb" ] ],
     [ "led_solenoid:C", "bb1:6b.j", "", [ "$bb" ] ],
     [ "r3:1", "bb1:6b.f", "", [ "$bb" ] ],
@@ -181,10 +165,20 @@
     [ "led_pump:C", "bb1:2b.j", "", [ "$bb" ] ],
     [ "r4:1", "bb1:2b.f", "", [ "$bb" ] ],
     [ "r4:2", "bb1:2t.b", "", [ "$bb" ] ],
-    [ "btn_tank2:1.l", "esp:13", "white", [ "h-268.8", "v-201.6" ] ],
-    [ "btn_tank2:2.l", "bb1:bn.24", "black", [ "h-700.8", "v-431.8" ] ],
-    [ "btn_fault_reset:1.l", "esp:19", "red", [ "h-28.8", "v-19.2" ] ],
-    [ "esp:GND.4", "btn_fault_reset:2.l", "black", [ "h278.4", "v19.2" ] ]
+    [ "esp:16", "bb1:27b.f", "limegreen", [ "h-38.45", "v38.4", "h-163.2" ] ],
+    [ "esp:48", "bb1:28b.g", "blue", [ "h0" ] ],
+    [ "bb1:26b.f", "bb1:tn.21", "black", [ "h0" ] ],
+    [ "rgb1:R", "bb1:25b.i", "", [ "$bb" ] ],
+    [ "rgb1:COM", "bb1:26b.j", "", [ "$bb" ] ],
+    [ "rgb1:G", "bb1:27b.i", "", [ "$bb" ] ],
+    [ "rgb1:B", "bb1:28b.i", "", [ "$bb" ] ],
+    [ "esp:47", "bz1:2", "purple", [ "v0", "h76.8" ] ],
+    [ "bz1:1", "bb1:tn.8", "black", [ "v0" ] ],
+    [ "esp:35", "oled1:SDA", "yellow", [ "h412.8", "v0", "h38.4", "v-643.2", "h-528" ] ],
+    [ "esp:36", "oled1:SCL", "orange", [ "h480", "v-662.4", "h-566.4" ] ],
+    [ "bb1:2t.a", "bb1:tn.3", "black", [ "h9.6", "v19.2" ] ],
+    [ "oled1:VCC", "bb1:tp.1", "red", [ "v-19.2", "h-67.05" ] ],
+    [ "oled1:GND", "bb1:tn.1", "black", [ "v-38.4", "h-86.4", "v9.6" ] ]
   ],
   "dependencies": {}
 }
