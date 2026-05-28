@@ -24,10 +24,7 @@ AlarmSeverity evaluateSeverity(
 
 // Returns true if it is time to toggle the buzzer on
 // based on severity and elapsed time
-bool shouldBeepNow(AlarmSeverity severity,
-    unsigned long now_ms,
-    unsigned long lastBeep_ms,
-    bool buzzerOn);
+bool shouldBeepNow(AlarmSeverity severity, unsigned long now_ms, unsigned long lastBeep_ms, bool buzzerOn);
 
 // Returns the beep interval in ms for a given severity
 unsigned long beepInterval(AlarmSeverity severity);

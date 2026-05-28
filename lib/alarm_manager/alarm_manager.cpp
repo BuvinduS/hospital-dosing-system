@@ -25,12 +25,8 @@ AlarmSeverity evaluateSeverity(
     return AlarmSeverity::NONE;
 }
 
-bool shouldBeepNow(AlarmSeverity severity,
-    unsigned long now_ms,
-    unsigned long lastBeep_ms,
-    bool buzzerOn) {
-    if (severity == AlarmSeverity::NONE ||
-        severity == AlarmSeverity::INFO) return false;
+bool shouldBeepNow(AlarmSeverity severity, unsigned long now_ms, unsigned long lastBeep_ms, bool buzzerOn) {
+    if (severity == AlarmSeverity::NONE || severity == AlarmSeverity::INFO) return false;
 
     unsigned long interval = beepInterval(severity);
     unsigned long elapsed = now_ms - lastBeep_ms;

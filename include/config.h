@@ -40,8 +40,8 @@
 #define BUZZER_PIN      47    // Passive buzzer
 
 // I2C for OLED
-#define OLED_SDA_PIN    1
-#define OLED_SCL_PIN    2
+#define OLED_SDA_PIN    35
+#define OLED_SCL_PIN    36
 
 
 // ── Manual reset ──────────────────────────────────────────────
