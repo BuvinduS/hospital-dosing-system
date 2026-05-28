@@ -434,9 +434,9 @@ float readLoadCellVolume() {
 //  RGB LED control - must be defined before setup() 
 // ============================================================
 void setRGB(bool r, bool g, bool b) {
-  digitalWrite(RGB_RED_PIN, r ? HIGH : LOW);
-  digitalWrite(RGB_GREEN_PIN, g ? HIGH : LOW);
-  digitalWrite(RGB_BLUE_PIN, b ? HIGH : LOW);
+  digitalWrite(RGB_RED_PIN, r ? LOW : HIGH);  // inverted — common anode
+  digitalWrite(RGB_GREEN_PIN, g ? LOW : HIGH);
+  digitalWrite(RGB_BLUE_PIN, b ? LOW : HIGH);
 }
 
 void updateRGB(AlarmSeverity severity) {
@@ -482,6 +482,14 @@ void setup() {
   pinMode(RGB_RED_PIN, OUTPUT);
   pinMode(RGB_GREEN_PIN, OUTPUT);
   pinMode(RGB_BLUE_PIN, OUTPUT);
+
+  // RGB test — cycles through colours on boot
+  setRGB(1, 0, 0); delay(500);  // red
+  setRGB(0, 1, 0); delay(500);  // green
+  setRGB(0, 0, 1); delay(500);  // blue
+  setRGB(1, 1, 0); delay(500);  // amber
+  setRGB(0, 0, 0);              // off
+
   setRGB(0, 1, 0);  // start green
 
   // ── Buzzer ────────────────────────────────────────────────────
