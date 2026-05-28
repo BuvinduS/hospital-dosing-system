@@ -18,8 +18,6 @@
 #define ECHO_PIN        17    // HC-SR04 echo
 #define FLOWPULSE_PIN   4     // flow meter pulse input (button in simulation)
 #define LOADCELL_PIN    6     // load cell ADC input (potentiometer in simulation)
-#define LED_FAULT       15    // red fault indicator LED
-#define LED_OK          16    // green status LED
 #define SOLENOID_PIN    7     // water solenoid valve (LED in simulation)
 #define WATER_FLOW_PIN  8     // water flow meter (button in simulation)
 

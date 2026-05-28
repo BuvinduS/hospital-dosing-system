@@ -1,6 +1,6 @@
 // ============================================================
 //  IoT Chemical Dosing System — Hospital
-//  Phase 2b: Simultaneous water + chemical dosing
+//  Phase 4a: Alarm system — RGB LED, buzzer, OLED display
 //
 //  Hardware: ESP32-S3-DevKitC-1
 //  Simulator: Wokwi (VS Code extension)
@@ -28,6 +28,11 @@
 #include "pump.h"
 #include "config.h"
 #include "refill_queue.h"
+#include "alarm_manager.h"
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 // ── Runtime state — tanks ─────────────────────────────────────
 static float chemRemaining_L = CHEM_INITIAL_VOL_L;
@@ -51,6 +56,20 @@ static bool chemPumpStopped = false;  // true when pump stopped mid-cycle
 static RefillQueue refillQueue;
 static uint8_t currentTankId = 0;  // tank currently being dosed 0 = none
 static uint8_t lastCompletedId = 0;  // tank that just finished — pending notification
+
+// ── Run time state — Alarm state ───────────────────────────────────────────────
+static AlarmSeverity currentSeverity = AlarmSeverity::NONE;
+static bool          buzzerOn = false;
+static unsigned long lastBeepTime_ms = 0;
+static unsigned long buzzerOnTime_ms = 0;
+
+// ── OLED ─────────────────────────────────────────────────────
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT  64
+#define OLED_RESET     -1   // no reset pin
+static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT,
+  &Wire, OLED_RESET);
+static bool oledAvailable = false;
 
 // ── Tank node simulation ──────────────────────────────────────
 // In production: separate ESP32 per tank, communicates via MQTT
@@ -411,12 +430,26 @@ float readLoadCellVolume() {
   return massToVolume(mass, CHEM_DENSITY_KG_L);
 }
 
-void updateLEDs(bool anyFault) {
-  digitalWrite(LED_FAULT, anyFault ? HIGH : LOW);
-  digitalWrite(LED_OK, !anyFault ? HIGH : LOW);
+// ============================================================
+//  RGB LED control - must be defined before setup() 
+// ============================================================
+void setRGB(bool r, bool g, bool b) {
+  digitalWrite(RGB_RED_PIN, r ? HIGH : LOW);
+  digitalWrite(RGB_GREEN_PIN, g ? HIGH : LOW);
+  digitalWrite(RGB_BLUE_PIN, b ? HIGH : LOW);
+}
+
+void updateRGB(AlarmSeverity severity) {
+  switch (severity) {
+  case AlarmSeverity::NONE:     setRGB(0, 1, 0); break;  // green
+  case AlarmSeverity::INFO:     setRGB(0, 0, 1); break;  // blue
+  case AlarmSeverity::WARNING:  setRGB(1, 1, 0); break;  // amber
+  case AlarmSeverity::CRITICAL: setRGB(1, 0, 0); break;  // red
+  }
 }
 
 // ============================================================
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -444,8 +477,35 @@ void setup() {
     onCycleChemPulse, FALLING);
 
   pinMode(LOADCELL_PIN, INPUT);
-  pinMode(LED_FAULT, OUTPUT);
-  pinMode(LED_OK, OUTPUT);
+
+  // ── RGB LED ───────────────────────────────────────────────────
+  pinMode(RGB_RED_PIN, OUTPUT);
+  pinMode(RGB_GREEN_PIN, OUTPUT);
+  pinMode(RGB_BLUE_PIN, OUTPUT);
+  setRGB(0, 1, 0);  // start green
+
+  // ── Buzzer ────────────────────────────────────────────────────
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  // ── OLED ──────────────────────────────────────────────────────
+  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
+  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    oledAvailable = true;
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Hospital Dosing");
+    display.println("System v1.0");
+    display.println();
+    display.println("Initialising...");
+    display.display();
+    delay(1000);
+  }
+  else {
+    Serial.println("[WARN] OLED not found — display disabled");
+  }
 
   // ── Tank node buttons ─────────────────────────────────────────
   pinMode(TANK1_BTN_PIN, INPUT_PULLUP);
@@ -550,9 +610,133 @@ void processRefillQueue() {
 }
 
 // ============================================================
+//  Buzzer control
+// ============================================================
+void updateBuzzer(AlarmSeverity severity, unsigned long now) {
+  if (severity == AlarmSeverity::NONE ||
+    severity == AlarmSeverity::INFO) {
+    // Silent — make sure buzzer is off
+    if (buzzerOn) {
+      digitalWrite(BUZZER_PIN, LOW);
+      buzzerOn = false;
+    }
+    return;
+  }
+
+  if (buzzerOn) {
+    // Buzzer currently on — check if duration expired
+    if (now - buzzerOnTime_ms >= BEEP_DURATION_MS) {
+      digitalWrite(BUZZER_PIN, LOW);
+      buzzerOn = false;
+      lastBeepTime_ms = now;
+    }
+  }
+  else {
+    // Buzzer off — check if interval elapsed
+    if (shouldBeepNow(severity, now, lastBeepTime_ms, false)) {
+      digitalWrite(BUZZER_PIN, HIGH);
+      buzzerOn = true;
+      buzzerOnTime_ms = now;
+    }
+  }
+}
+
+// ============================================================
+//  OLED display
+// ============================================================
+void updateDisplay(AlarmSeverity severity,
+  float height_m, float volume_L, bool waterFault,
+  float chemRemaining, bool chemLow, bool mismatch,
+  DosingState state, float waterDisp, float chemDisp,
+  float waterTarget, float chemTarget,
+  uint8_t queueSz, uint8_t servingId,
+  DosingFault fault) {
+  if (!oledAvailable) return;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+
+  // ── Critical fault screen ─────────────────────────────────
+  if (severity == AlarmSeverity::CRITICAL) {
+    display.setTextSize(2);
+    display.println("!! FAULT !!");
+    display.setTextSize(1);
+    display.println();
+    if (waterFault) {
+      display.println("WATER SENSOR FAIL");
+    }
+    if (state == DosingState::FAULT) {
+      display.print("DOSE: ");
+      display.println(faultToString(fault));
+    }
+    display.println();
+    display.println("Press RESET btn");
+    display.display();
+    return;
+  }
+
+  // ── Normal status screen ──────────────────────────────────
+  // Line 1 — header
+  display.setTextSize(1);
+  display.println("HOSPITAL DOSING SYS");
+  display.drawLine(0, 9, 127, 9, SSD1306_WHITE);
+  display.setCursor(0, 12);
+
+  // Line 2 — water tank
+  display.print("W:");
+  if (waterFault) {
+    display.println(" SENSOR ERR");
+  }
+  else {
+    display.print(volume_L, 0); display.print("L ");
+    display.println(waterFault ? "ERR" : "OK");
+  }
+
+  // Line 3 — chemical tank
+  display.print("C:");
+  display.print(chemRemaining, 2); display.print("L ");
+  if (chemLow)      display.println("LOW");
+  else if (mismatch) display.println("MISMATCH");
+  else               display.println("OK");
+
+  // Line 4 — dosing state
+  display.print("Dose:");
+  display.print(stateToString(state));
+  if (state == DosingState::DOSING ||
+    state == DosingState::TOPPING_UP) {
+    display.print(" W:");
+    display.print(waterDisp * 1000.0f, 0);
+    display.print("/");
+    display.print(waterTarget * 1000.0f, 0);
+  }
+  display.println();
+
+  // Line 5 — queue
+  display.print("Q:");
+  display.print(queueSz);
+  if (servingId != 0) {
+    display.print(" Srv:T"); display.print(servingId);
+  }
+  else {
+    display.print(" Srv:--");
+  }
+  display.println();
+
+  // Line 6 — status
+  display.drawLine(0, 54, 127, 54, SSD1306_WHITE);
+  display.setCursor(0, 56);
+  display.print("STATUS: ");
+  display.println(severityToString(severity));
+
+  display.display();
+}
+
 void loop() {
   processPendingPulses();
   updateDosingStateMachine();
+  updateBuzzer(currentSeverity, millis());  // ← every loop, not just report
 
   if (faultResetRequested) {
     faultResetRequested = false;
@@ -587,9 +771,20 @@ void loop() {
     bool chemLow = isChemLow(chemRemaining_L, CHEM_LOW_THRESHOLD_L);
     bool mismatch = isMismatch(chemRemaining_L, lcVol_L, MISMATCH_TOLERANCE_L);
 
-    // ── Fault summary ─────────────────────────────────────────
+    // ── Alarm severity — evaluated here where all flags are in scope ──
+    bool dosingActive = (dosingState == DosingState::DOSING ||
+      dosingState == DosingState::TOPPING_UP ||
+      dosingState == DosingState::CLOSING);
+    bool dosingFaultActive = (dosingState == DosingState::FAULT);
+
+    currentSeverity = evaluateSeverity(
+      waterFault, waterLow, chemLow, mismatch,
+      dosingFaultActive, dosingActive
+    );
+
+    // ── Fault summary for dashboard ───────────────────────────
     bool anyFault = waterFault || waterLow || chemLow || mismatch
-      || (dosingState == DosingState::FAULT);
+      || dosingFaultActive;
 
     // ── Serial dashboard ──────────────────────────────────────
     unsigned long t = millis() / 1000;
@@ -656,6 +851,11 @@ void loop() {
     Serial.println(anyFault ? "FAULT" : "OK");
     Serial.println("+--------------------------------------------------+");
 
-    updateLEDs(anyFault);
+    updateRGB(currentSeverity);
+    // updateBuzzer already called above
+    updateDisplay(currentSeverity, height_m, volume_L, waterFault, chemRemaining_L, chemLow, mismatch, dosingState, waterDispensed_L, chemDispensed_L,
+      DISPENSE_TARGET_L, chemCycleActualTarget_L,
+      queueSize(refillQueue), currentTankId,
+      dosingFault);
   }
 }
