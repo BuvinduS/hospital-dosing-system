@@ -31,6 +31,7 @@
 #include "alarm_manager.h"
 
 #include <Wire.h>
+#include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_ILI9341.h>
@@ -583,9 +584,10 @@ void setup() {
     Serial.println("[WARN] OLED not found");
   }
 
+  SPI.begin(TFT_SCK, -1, TFT_MOSI, TFT_CS);  // SCK, MISO, MOSI, SS
   // ── TFT ───────────────────────────────────────────────────
   tft.begin();
-  tft.setRotation(1);
+  tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
