@@ -25,10 +25,10 @@
                                 // Phase 4: replaced by MQTT subscription
 
 #define PUMP_PIN                21    // chemical pump (LED in simulation)
-#define CHEM_FLOW_PIN           11    // chemical flow meter (button in simulation)
+#define CHEM_FLOW_PIN           14    // chemical flow meter (button in simulation)
 
 // ── Dispensing tank nodes (simulation) ───────────────────────
-#define TANK1_BTN_PIN   12    // Tank 1 low level sensor (button in simulation)
+#define TANK1_BTN_PIN   3    // Tank 1 low level sensor (button in simulation)
 #define TANK2_BTN_PIN   13    // Tank 2 low level sensor (button in simulation)
 
 // ── Alarm and display ─────────────────────────────────────────
@@ -41,6 +41,15 @@
 #define OLED_SDA_PIN    35
 #define OLED_SCL_PIN    36
 
+// ── TFT Display (ILI9341) — SPI ──────────────────────────────
+#define TFT_MOSI    37
+#define TFT_SCK     39
+#define TFT_CS      40
+#define TFT_DC      41
+#define TFT_RST     -1    // tie RST to 3.3V, use -1 in code
+
+// ── Report button ─────────────────────────────────────────────
+#define REPORT_BTN_PIN   18
 
 // ── Manual reset ──────────────────────────────────────────────
 #define FAULT_RESET_PIN  19   // manual fault reset (temp — Phase 4: MQTT command)
@@ -92,3 +101,6 @@ constexpr uint8_t TANK2_ID = 2;
 constexpr unsigned long WARN_BEEP_INTERVAL_MS = 3000UL; // warning beep every 3s
 constexpr unsigned long CRIT_BEEP_INTERVAL_MS = 300UL;  // critical beep every 300ms
 constexpr unsigned long BEEP_DURATION_MS = 100UL;  // beep on-time
+
+// ── Usage log ─────────────────────────────────────────────────
+constexpr uint8_t MAX_LOG_RECORDS = 50;

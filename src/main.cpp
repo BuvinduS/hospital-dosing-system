@@ -33,6 +33,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_ILI9341.h>
 
 // ── Runtime state — tanks ─────────────────────────────────────
 static float chemRemaining_L = CHEM_INITIAL_VOL_L;
@@ -92,6 +93,43 @@ volatile long pendingChemPulses = 0;  // chemical tank stock tracking
 volatile long pendingWaterPulses = 0;  // water dosing cycle
 volatile long pendingCycleChemPulses = 0;  // chemical dosing cycle
 
+// ── Usage log ─────────────────────────────────────────────────
+struct RefillRecord {
+  uint8_t       tankId;
+  unsigned long timestamp_s;      // seconds since boot
+  float         waterDispensed_L;
+  float         chemDispensed_L;
+  bool          ratioOk;
+  DosingFault   fault;
+  unsigned long duration_s;
+  unsigned long cycleStart_s;     // when cycle started
+};
+
+static RefillRecord usageLog[MAX_LOG_RECORDS];
+static uint8_t      logCount = 0;
+static bool         logFull = false;
+
+static unsigned long cycleStart_s = 0;
+
+// ── TFT ───────────────────────────────────────────────────────
+static Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
+static bool tftAvailable = false;
+
+// ── ILI9341 colour constants ──────────────────────────────────
+#define TFT_BLACK   0x0000
+#define TFT_WHITE   0xFFFF
+#define TFT_RED     0xF800
+#define TFT_GREEN   0x07E0
+#define TFT_BLUE    0x001F
+#define TFT_YELLOW  0xFFE0
+#define TFT_CYAN    0x07FF
+#define TFT_MAGENTA 0xF81F
+#define TFT_GREY    0x8410
+
+// ── Report button ─────────────────────────────────────────────
+static volatile bool reportRequested = false;
+static volatile unsigned long lastReportBtnDebounce = 0;
+
 // ── Manual Reset ──────────────────────────────────
 static volatile bool faultResetRequested = false;
 
@@ -147,6 +185,14 @@ void IRAM_ATTR onTank2Request() {
 
 void IRAM_ATTR onFaultReset() {
   faultResetRequested = true;
+}
+
+void IRAM_ATTR onReportRequest() {
+  unsigned long now = millis();
+  if (now - lastReportBtnDebounce >= TANK_DEBOUNCE_MS) {
+    reportRequested = true;
+    lastReportBtnDebounce = now;
+  }
 }
 
 // ============================================================
@@ -235,10 +281,34 @@ void processPendingPulses() {
   }
 }
 
+void logRefillRecord(uint8_t tankId, float waterL, float chemL,
+  bool ratioOk, DosingFault fault,
+  unsigned long startSec) {
+  if (logCount >= MAX_LOG_RECORDS) {
+    // Overwrite oldest — circular
+    for (uint8_t i = 0; i < MAX_LOG_RECORDS - 1; i++) {
+      usageLog[i] = usageLog[i + 1];
+    }
+    logCount = MAX_LOG_RECORDS - 1;
+    logFull = true;
+  }
+  RefillRecord r;
+  r.tankId = tankId;
+  r.timestamp_s = millis() / 1000;
+  r.waterDispensed_L = waterL;
+  r.chemDispensed_L = chemL;
+  r.ratioOk = ratioOk;
+  r.fault = fault;
+  r.duration_s = (millis() / 1000) - startSec;
+  r.cycleStart_s = startSec;
+  usageLog[logCount++] = r;
+}
+
 // ============================================================
 //  Dosing state machine
 // ============================================================
 void startDosing(float current_level_m) {
+  cycleStart_s = millis() / 1000;
   chemPumpStopped = false;
   if (dosingState != DosingState::IDLE) return;
 
@@ -286,6 +356,10 @@ void updateDosingStateMachine() {
       closeSolenoid();
       stopPump();
       dosingFault = DosingFault::BLOCKED_VALVE;
+      logRefillRecord(currentTankId,
+        waterDispensed_L, chemDispensed_L,
+        false, DosingFault::BLOCKED_VALVE,
+        cycleStart_s);
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — blocked valve");
       break;
@@ -296,6 +370,10 @@ void updateDosingStateMachine() {
       closeSolenoid();
       stopPump();
       dosingFault = DosingFault::PUMP_FAILURE;
+      logRefillRecord(currentTankId,
+        waterDispensed_L, chemDispensed_L,
+        false, DosingFault::BLOCKED_VALVE,
+        cycleStart_s);
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — pump failure");
       break;
@@ -306,6 +384,10 @@ void updateDosingStateMachine() {
       closeSolenoid();
       stopPump();
       dosingFault = DosingFault::TIMEOUT;
+      logRefillRecord(currentTankId,
+        waterDispensed_L, chemDispensed_L,
+        false, DosingFault::BLOCKED_VALVE,
+        cycleStart_s);
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — timeout");
       break;
@@ -359,6 +441,10 @@ void updateDosingStateMachine() {
     if (isDosingTimeout(elapsed, TOPPING_UP_TIMEOUT_MS)) {
       stopPump();
       dosingFault = DosingFault::TIMEOUT;
+      logRefillRecord(currentTankId,
+        waterDispensed_L, chemDispensed_L,
+        false, DosingFault::BLOCKED_VALVE,
+        cycleStart_s);
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — top-up timeout");
       break;
@@ -381,6 +467,10 @@ void updateDosingStateMachine() {
     // Stuck valve check
     if (isStuckOpen(closingFlow_L, STUCK_VALVE_TOL_L)) {
       dosingFault = DosingFault::STUCK_VALVE;
+      logRefillRecord(currentTankId,
+        waterDispensed_L, chemDispensed_L,
+        false, DosingFault::BLOCKED_VALVE,
+        cycleStart_s);
       dosingState = DosingState::FAULT;
       Serial.println("  [DOSE] FAULT — stuck valve");
       break;
@@ -399,6 +489,7 @@ void updateDosingStateMachine() {
 
   case DosingState::COMPLETE:
     lastCompletedId = currentTankId;  // ← record who just finished
+    logRefillRecord(currentTankId, waterDispensed_L, chemDispensed_L, ratioOk, DosingFault::NONE, cycleStart_s);
     dosingState = DosingState::IDLE;
     Serial.println("  [DOSE] IDLE — ready for next request");
     break;
@@ -454,49 +545,28 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  digitalWrite(TRIG_PIN, LOW);
-
-  pinMode(FLOWPULSE_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(FLOWPULSE_PIN),
-    onChemStockPulse, FALLING);
-
-  pinMode(SOLENOID_PIN, OUTPUT);
-  digitalWrite(SOLENOID_PIN, LOW);
-
-  pinMode(WATER_FLOW_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(WATER_FLOW_PIN),
-    onWaterPulse, FALLING);
-
-  pinMode(PUMP_PIN, OUTPUT);
-  digitalWrite(PUMP_PIN, LOW);
-
-  pinMode(CHEM_FLOW_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(CHEM_FLOW_PIN),
-    onCycleChemPulse, FALLING);
-
-  pinMode(LOADCELL_PIN, INPUT);
-
-  // ── RGB LED ───────────────────────────────────────────────────
+  // ── Output pins first — no interrupts needed ──────────────
+  pinMode(TRIG_PIN, OUTPUT); digitalWrite(TRIG_PIN, LOW);
+  pinMode(SOLENOID_PIN, OUTPUT); digitalWrite(SOLENOID_PIN, LOW);
+  pinMode(PUMP_PIN, OUTPUT); digitalWrite(PUMP_PIN, LOW);
+  pinMode(BUZZER_PIN, OUTPUT); digitalWrite(BUZZER_PIN, LOW);
   pinMode(RGB_RED_PIN, OUTPUT);
   pinMode(RGB_GREEN_PIN, OUTPUT);
   pinMode(RGB_BLUE_PIN, OUTPUT);
+  setRGB(0, 1, 0);
 
-  // RGB test — cycles through colours on boot
-  setRGB(1, 0, 0); delay(500);  // red
-  setRGB(0, 1, 0); delay(500);  // green
-  setRGB(0, 0, 1); delay(500);  // blue
-  setRGB(1, 1, 0); delay(500);  // amber
-  setRGB(0, 0, 0);              // off
+  // ── Input pins ────────────────────────────────────────────
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(FLOWPULSE_PIN, INPUT_PULLUP);
+  pinMode(WATER_FLOW_PIN, INPUT_PULLUP);
+  pinMode(CHEM_FLOW_PIN, INPUT_PULLUP);
+  pinMode(LOADCELL_PIN, INPUT);
+  pinMode(TANK1_BTN_PIN, INPUT_PULLUP);
+  pinMode(TANK2_BTN_PIN, INPUT_PULLUP);
+  pinMode(FAULT_RESET_PIN, INPUT_PULLUP);
+  pinMode(REPORT_BTN_PIN, INPUT_PULLUP);
 
-  setRGB(0, 1, 0);  // start green
-
-  // ── Buzzer ────────────────────────────────────────────────────
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-
-  // ── OLED ──────────────────────────────────────────────────────
+  // ── OLED ──────────────────────────────────────────────────
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     oledAvailable = true;
@@ -506,39 +576,59 @@ void setup() {
     display.setCursor(0, 0);
     display.println("Hospital Dosing");
     display.println("System v1.0");
-    display.println();
     display.println("Initialising...");
     display.display();
-    delay(1000);
   }
   else {
-    Serial.println("[WARN] OLED not found — display disabled");
+    Serial.println("[WARN] OLED not found");
   }
 
-  // ── Tank node buttons ─────────────────────────────────────────
-  pinMode(TANK1_BTN_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(TANK1_BTN_PIN), onTank1Request, FALLING);
+  // ── TFT ───────────────────────────────────────────────────
+  tft.begin();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 100);
+  tft.println("Hospital Dosing");
+  tft.setTextSize(1);
+  tft.setCursor(10, 130);
+  tft.println("Initialising...");
+  tftAvailable = true;
 
-  pinMode(TANK2_BTN_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(TANK2_BTN_PIN), onTank2Request, FALLING);
-
-  // ── Manual reset button ──────────────────────────────────────
-  pinMode(FAULT_RESET_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(FAULT_RESET_PIN), onFaultReset, FALLING);
-
+  // ── Queue ─────────────────────────────────────────────────
   queueInit(refillQueue);
 
+  // ── Attach ALL interrupts last — after displays initialised ──
+  // This prevents spurious ISR fires during display init delays
+  attachInterrupt(digitalPinToInterrupt(FLOWPULSE_PIN),
+    onChemStockPulse, FALLING);
+  attachInterrupt(digitalPinToInterrupt(WATER_FLOW_PIN),
+    onWaterPulse, FALLING);
+  attachInterrupt(digitalPinToInterrupt(CHEM_FLOW_PIN),
+    onCycleChemPulse, FALLING);
+  attachInterrupt(digitalPinToInterrupt(TANK1_BTN_PIN),
+    onTank1Request, FALLING);
+  attachInterrupt(digitalPinToInterrupt(TANK2_BTN_PIN),
+    onTank2Request, FALLING);
+  attachInterrupt(digitalPinToInterrupt(FAULT_RESET_PIN),
+    onFaultReset, FALLING);
+  attachInterrupt(digitalPinToInterrupt(REPORT_BTN_PIN),
+    onReportRequest, FALLING);
+
   Serial.println("+--------------------------------------------------+");
-  Serial.println("| Hospital Dosing System — Phase 2b                |");
-  Serial.println("| Simultaneous water + chemical dosing             |");
+  Serial.println("| Hospital Dosing System — Phase 4b                |");
+  Serial.println("| Alarm + Display + Usage Logging                  |");
   Serial.println("+--------------------------------------------------+");
   Serial.println("| [GPIO4 ] btn green  — chem stock pulse           |");
   Serial.println("| [GPIO8 ] btn blue   — water flow pulse           |");
   Serial.println("| [GPIO11] btn yellow — chem flow pulse            |");
   Serial.println("| [GPIO7 ] LED magenta— solenoid valve             |");
-  Serial.println("| [GPIO21] LED blue   — chemical pump              |");
+  Serial.println("| [GPIO21] LED cyan   — chemical pump              |");
   Serial.println("| [GPIO12] btn white  — Tank 1 low level sensor    |");
   Serial.println("| [GPIO13] btn white  — Tank 2 low level sensor    |");
+  Serial.println("| [GPIO14] btn orange — fault reset                |");
+  Serial.println("| [GPIO18] btn purple — print report               |");
   Serial.println("+--------------------------------------------------+");
 }
 
@@ -741,6 +831,199 @@ void updateDisplay(AlarmSeverity severity,
   display.display();
 }
 
+// ============================================================
+//  TFT — print usage report
+// ============================================================
+void printReportTFT() {
+  if (!tftAvailable) {
+    Serial.println("[REPORT] TFT not available — printing to serial only");
+    return;
+  }
+
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextWrap(false);
+
+  // ── Header ────────────────────────────────────────────────
+  tft.fillRect(0, 0, 320, 30, TFT_BLUE);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(10, 8);
+  tft.println("USAGE REPORT");
+
+  // ── Session summary ────────────────────────────────────────
+  uint8_t total = logCount;
+  uint8_t successful = 0;
+  uint8_t faulted = 0;
+  float   totalWater = 0.0f;
+  float   totalChem = 0.0f;
+
+  // Per-tank accumulators (supports up to 10 tanks)
+  uint8_t tankRefills[10] = { 0 };
+  float   tankWater[10] = { 0 };
+  float   tankChem[10] = { 0 };
+
+  for (uint8_t i = 0; i < logCount; i++) {
+    if (usageLog[i].fault == DosingFault::NONE) successful++;
+    else faulted++;
+    totalWater += usageLog[i].waterDispensed_L;
+    totalChem += usageLog[i].chemDispensed_L;
+
+    uint8_t tid = usageLog[i].tankId;
+    if (tid >= 1 && tid <= 10) {
+      tankRefills[tid - 1]++;
+      tankWater[tid - 1] += usageLog[i].waterDispensed_L;
+      tankChem[tid - 1] += usageLog[i].chemDispensed_L;
+    }
+  }
+
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE);
+  int y = 38;
+
+  tft.setCursor(10, y); y += 14;
+  tft.print("Session cycles : "); tft.println(total);
+
+  tft.setTextColor(TFT_GREEN);
+  tft.setCursor(10, y); y += 14;
+  tft.print("Successful     : "); tft.println(successful);
+
+  tft.setTextColor(faulted > 0 ? TFT_RED : TFT_GREEN);
+  tft.setCursor(10, y); y += 14;
+  tft.print("Faulted        : "); tft.println(faulted);
+
+  tft.setTextColor(TFT_CYAN);
+  tft.setCursor(10, y); y += 14;
+  tft.print("Total water    : "); tft.print(totalWater, 3); tft.println(" L");
+
+  tft.setCursor(10, y); y += 14;
+  tft.print("Total chemical : "); tft.print(totalChem * 1000.0f, 1); tft.println(" mL");
+
+  // ── Divider ───────────────────────────────────────────────
+  y += 4;
+  tft.drawLine(0, y, 319, y, TFT_GREY);
+  y += 6;
+
+  // ── Per-tank breakdown ────────────────────────────────────
+  tft.setTextColor(TFT_YELLOW);
+  tft.setCursor(10, y); y += 14;
+  tft.println("By dispensing tank:");
+
+  tft.setTextColor(TFT_WHITE);
+  for (uint8_t t = 0; t < 10; t++) {
+    if (tankRefills[t] == 0) continue;
+    tft.setCursor(10, y); y += 14;
+    tft.print("Tank "); tft.print(t + 1);
+    tft.print(": "); tft.print(tankRefills[t]); tft.print(" refills");
+    tft.print("  W:"); tft.print(tankWater[t], 2); tft.print("L");
+    tft.print("  C:"); tft.print(tankChem[t] * 1000.0f, 0); tft.print("mL");
+    if (y > 220) break;  // prevent overflow
+  }
+
+  // ── Divider ───────────────────────────────────────────────
+  y += 4;
+  tft.drawLine(0, y, 319, y, TFT_GREY);
+  y += 6;
+
+  // ── Recent cycles ─────────────────────────────────────────
+  tft.setTextColor(TFT_YELLOW);
+  tft.setCursor(10, y); y += 14;
+  tft.println("Recent cycles:");
+
+  tft.setTextSize(1);
+  uint8_t start = logCount > 5 ? logCount - 5 : 0;
+  for (uint8_t i = start; i < logCount; i++) {
+    RefillRecord& r = usageLog[i];
+    tft.setTextColor(r.fault == DosingFault::NONE ? TFT_GREEN : TFT_RED);
+    tft.setCursor(10, y); y += 12;
+    tft.print("T"); tft.print(r.tankId);
+    tft.print(" @"); tft.print(r.timestamp_s); tft.print("s");
+    tft.print(" W:"); tft.print(r.waterDispensed_L * 1000.0f, 0); tft.print("mL");
+    tft.print(" C:"); tft.print(r.chemDispensed_L * 1000.0f, 0); tft.print("mL");
+    if (r.fault != DosingFault::NONE) {
+      tft.print(" "); tft.print(faultToString(r.fault));
+    }
+    else {
+      tft.print(r.ratioOk ? " OK" : " RATIO!");
+    }
+    if (y > 300) break;
+  }
+
+  // ── Footer ────────────────────────────────────────────────
+  tft.fillRect(0, 310, 320, 10, TFT_BLUE);
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(10, 311);
+  tft.setTextSize(1);
+  tft.print("Log: "); tft.print(logCount);
+  tft.print("/"); tft.print(MAX_LOG_RECORDS);
+  if (logFull) tft.print(" (oldest overwritten)");
+}
+
+// ============================================================
+//  Serial report — printed alongside TFT
+// ============================================================
+void printReportSerial() {
+  Serial.println();
+  Serial.println("+--------------------------------------------------+");
+  Serial.println("|              USAGE REPORT                        |");
+  Serial.println("+--------------------------------------------------+");
+
+  uint8_t total = logCount, successful = 0, faulted = 0;
+  float   totalWater = 0.0f, totalChem = 0.0f;
+
+  uint8_t tankRefills[10] = { 0 };
+  float   tankWater[10] = { 0 };
+  float   tankChem[10] = { 0 };
+
+  for (uint8_t i = 0; i < logCount; i++) {
+    if (usageLog[i].fault == DosingFault::NONE) successful++;
+    else faulted++;
+    totalWater += usageLog[i].waterDispensed_L;
+    totalChem += usageLog[i].chemDispensed_L;
+    uint8_t tid = usageLog[i].tankId;
+    if (tid >= 1 && tid <= 10) {
+      tankRefills[tid - 1]++;
+      tankWater[tid - 1] += usageLog[i].waterDispensed_L;
+      tankChem[tid - 1] += usageLog[i].chemDispensed_L;
+    }
+  }
+
+  Serial.print("| Total cycles  : "); Serial.println(total);
+  Serial.print("| Successful    : "); Serial.println(successful);
+  Serial.print("| Faulted       : "); Serial.println(faulted);
+  Serial.print("| Water used    : "); Serial.print(totalWater, 3);
+  Serial.println(" L");
+  Serial.print("| Chemical used : "); Serial.print(totalChem * 1000.0f, 1);
+  Serial.println(" mL");
+  Serial.println("+--------------------------------------------------+");
+  Serial.println("| By tank:                                         |");
+  for (uint8_t t = 0; t < 10; t++) {
+    if (tankRefills[t] == 0) continue;
+    Serial.print("| Tank "); Serial.print(t + 1);
+    Serial.print(": "); Serial.print(tankRefills[t]); Serial.print(" refills");
+    Serial.print("  W="); Serial.print(tankWater[t], 3); Serial.print("L");
+    Serial.print("  C="); Serial.print(tankChem[t] * 1000.0f, 1); Serial.println("mL");
+  }
+  Serial.println("+--------------------------------------------------+");
+  Serial.println("| Recent cycles (last 5):                          |");
+  uint8_t start = logCount > 5 ? logCount - 5 : 0;
+  for (uint8_t i = start; i < logCount; i++) {
+    RefillRecord& r = usageLog[i];
+    Serial.print("| T"); Serial.print(r.tankId);
+    Serial.print(" @"); Serial.print(r.timestamp_s); Serial.print("s");
+    Serial.print(" W:"); Serial.print(r.waterDispensed_L * 1000.0f, 0); Serial.print("mL");
+    Serial.print(" C:"); Serial.print(r.chemDispensed_L * 1000.0f, 0); Serial.print("mL");
+    Serial.print(" dur:"); Serial.print(r.duration_s); Serial.print("s");
+    if (r.fault != DosingFault::NONE) {
+      Serial.print(" FAULT:"); Serial.print(faultToString(r.fault));
+    }
+    else {
+      Serial.print(r.ratioOk ? " OK" : " RATIO_WARN");
+    }
+    Serial.println();
+  }
+  Serial.println("+--------------------------------------------------+");
+}
+
 void loop() {
   processPendingPulses();
   updateDosingStateMachine();
@@ -757,6 +1040,12 @@ void loop() {
     else {
       Serial.println("  [RESET] No active fault — ignored");
     }
+  }
+
+  if (reportRequested) {
+    reportRequested = false;
+    printReportSerial();
+    printReportTFT();
   }
 
   processTankRequests();
