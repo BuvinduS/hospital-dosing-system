@@ -642,7 +642,7 @@ void setup() {
 void processTankRequests() {
   if (tank1Requested) {
     tank1Requested = false;
-    if (currentTankId == TANK1_ID) {
+    if (currentTankId == TANK1_ID && dosingState != DosingState::IDLE) {
       Serial.println("  [TANK 1] Already being served — request ignored");
     }
     else if (enqueue(refillQueue, TANK1_ID)) {
@@ -659,7 +659,7 @@ void processTankRequests() {
 
   if (tank2Requested) {
     tank2Requested = false;
-    if (currentTankId == TANK2_ID) {
+    if (currentTankId == TANK2_ID && dosingState != DosingState::IDLE) {
       Serial.println("  [TANK 2] Already being served — request ignored");
     }
     else if (enqueue(refillQueue, TANK2_ID)) {
